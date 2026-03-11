@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.database import get_db, AsyncSessionLocal
+from app.database import get_db
 from app.models import Scan, ScanModule
 from app.schemas import ScanCreate, ScanOut, ScanSummary
 from app.scanners.orchestrator import run_scan
@@ -13,12 +13,6 @@ router = APIRouter(prefix="/api/scans", tags=["scans"])
 SCAN_WITH_MODULES = (
     selectinload(Scan.modules).selectinload(ScanModule.findings)
 )
-
-
-async def run_scan_with_session(scan_id: str, domain: str):
-    """Lance le scan dans une session indépendante (background task)."""
-    async with AsyncSessionLocal() as session:
-        await run_scan(scan_id, domain, session)
 
 
 @router.post("", response_model=ScanOut, status_code=201)
@@ -31,7 +25,7 @@ async def create_scan(
     db.add(scan)
     await db.commit()
 
-    background_tasks.add_task(run_scan_with_session, scan.id, body.domain)
+    background_tasks.add_task(run_scan, scan.id, body.domain)
 
     result = await db.execute(
         select(Scan).options(SCAN_WITH_MODULES).where(Scan.id == scan.id)
