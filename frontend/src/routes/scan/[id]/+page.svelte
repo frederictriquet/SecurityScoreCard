@@ -1,7 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { getScan } from '$lib/api.js';
+  import { getScan, createScan } from '$lib/api.js';
   import ScoreGauge from '$lib/components/ScoreGauge.svelte';
   import ModuleCard from '$lib/components/ModuleCard.svelte';
   import ScanStatus from '$lib/components/ScanStatus.svelte';
@@ -39,6 +40,20 @@
 
   onDestroy(() => clearInterval(interval));
 
+  let rescanning = false;
+
+  async function handleRescan() {
+    if (!scan?.domain || rescanning) return;
+    rescanning = true;
+    try {
+      const newScan = await createScan(scan.domain);
+      goto(`/scan/${newScan.id}`);
+    } catch (e) {
+      error = e.message;
+      rescanning = false;
+    }
+  }
+
   const MODULE_ORDER = ['dns', 'tls', 'headers', 'reputation', 'subdomains', 'leaks'];
 
   $: orderedModules = scan?.modules
@@ -72,6 +87,16 @@
       <div class="domain-row">
         <h1>{scan.domain}</h1>
         <ScanStatus status={scan.status} />
+        {#if scan.status === 'completed' || scan.status === 'failed'}
+          <button class="rescan-btn" on:click={handleRescan} disabled={rescanning}>
+            {#if rescanning}
+              <span class="spinner"></span>
+            {:else}
+              ↺
+            {/if}
+            Rescan
+          </button>
+        {/if}
       </div>
       {#if scan.completed_at}
         {@const dur = formatDuration(scan.started_at, scan.completed_at)}
@@ -134,6 +159,30 @@
     gap: 14px;
     flex-wrap: wrap;
   }
+  .rescan-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #1e293b;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    margin-left: auto;
+  }
+  .rescan-btn:hover:not(:disabled) { background: #263548; color: #e2e8f0; }
+  .rescan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid rgba(148,163,184,0.3);
+    border-top-color: #94a3b8;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   h1 {
     font-size: 1.75rem;
     font-weight: 800;
