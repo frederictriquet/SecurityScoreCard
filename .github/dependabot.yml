@@ -1,0 +1,34 @@
+version: 2
+
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      svelte:
+        patterns: ["@sveltejs/*", "svelte", "vite"]
+    ignore:
+      # Vulnérabilité cookie dans @sveltejs/kit : non exploitable avec
+      # adapter-static (pas de SSR ni dev server en production)
+      - dependency-name: "cookie"
+        update-types: ["version-update:semver-patch"]
+
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"

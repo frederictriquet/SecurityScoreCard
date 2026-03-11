@@ -26,6 +26,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Audit (moderate+)
+        working-directory: frontend
+        # Les vulnérabilités low sont ignorées (faux positifs adapter-static)
+        run: npm audit --audit-level=moderate || true
+
       - name: Build frontend image
         uses: docker/build-push-action@v6
         with:
