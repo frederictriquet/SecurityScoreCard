@@ -1,13 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
-from app.database import get_db
-from app.models import Scan
+from app.database import get_db, AsyncSessionLocal
+from app.models import Scan, ScanModule
 from app.schemas import ScanCreate, ScanOut, ScanSummary
 from app.scanners.orchestrator import run_scan
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
+
+SCAN_WITH_MODULES = (
+    selectinload(Scan.modules).selectinload(ScanModule.findings)
+)
+
+
+async def run_scan_with_session(scan_id: str, domain: str):
+    """Lance le scan dans une session indépendante (background task)."""
+    async with AsyncSessionLocal() as session:
+        await run_scan(scan_id, domain, session)
 
 
 @router.post("", response_model=ScanOut, status_code=201)
@@ -19,11 +30,13 @@ async def create_scan(
     scan = Scan(domain=body.domain)
     db.add(scan)
     await db.commit()
-    await db.refresh(scan)
 
-    background_tasks.add_task(run_scan, scan.id, body.domain, db)
+    background_tasks.add_task(run_scan_with_session, scan.id, body.domain)
 
-    return scan
+    result = await db.execute(
+        select(Scan).options(SCAN_WITH_MODULES).where(Scan.id == scan.id)
+    )
+    return result.scalar_one()
 
 
 @router.get("", response_model=list[ScanSummary])
@@ -36,7 +49,9 @@ async def list_scans(db: AsyncSession = Depends(get_db)):
 
 @router.get("/{scan_id}", response_model=ScanOut)
 async def get_scan(scan_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    result = await db.execute(
+        select(Scan).options(SCAN_WITH_MODULES).where(Scan.id == scan_id)
+    )
     scan = result.scalar_one_or_none()
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan introuvable")
