@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { getScan, createScan } from '$lib/api.js';
+  import { getScan, createScan, rescanInPlace } from '$lib/api.js';
   import ScoreGauge from '$lib/components/ScoreGauge.svelte';
   import ModuleCard from '$lib/components/ModuleCard.svelte';
   import ScanStatus from '$lib/components/ScanStatus.svelte';
@@ -22,12 +22,14 @@
       retries = 0;
       if (scan.status === 'completed' || scan.status === 'failed') {
         clearInterval(interval);
+        interval = null;
       }
     } catch (e) {
       retries++;
       if (retries >= MAX_RETRIES) {
         error = `Impossible de joindre le serveur (${e.message})`;
         clearInterval(interval);
+        interval = null;
       }
       // sinon on réessaie silencieusement au prochain tick
     }
@@ -42,25 +44,53 @@
 
   let rescanning = false;
 
-  async function handleRescan() {
+  async function handleRescanNew() {
     if (!scan?.domain || rescanning) return;
     rescanning = true;
     try {
       const newScan = await createScan(scan.domain);
-      goto(`/scan/${newScan.id}`);
+      await goto(`/scan/${newScan.id}`);
+      rescanning = false;
     } catch (e) {
       error = e.message;
       rescanning = false;
     }
   }
 
+  async function handleRescanInPlace() {
+    if (!scan?.id || rescanning) return;
+    rescanning = true;
+    try {
+      await rescanInPlace(scan.id);
+      await fetchScan();
+      if (interval === null) {
+        interval = setInterval(fetchScan, POLL_INTERVAL);
+      }
+    } catch (e) {
+      error = e.message;
+    } finally {
+      rescanning = false;
+    }
+  }
+
   const MODULE_ORDER = ['dns', 'tls', 'headers', 'reputation', 'subdomains', 'leaks'];
 
+  // Priorité d'affichage : running > pending > completed/failed
+  const STATUS_PRIORITY = { running: 0, pending: 1, completed: 2, failed: 2 };
+
   $: orderedModules = scan?.modules
-    ? [...scan.modules].sort(
-        (a, b) => MODULE_ORDER.indexOf(a.name) - MODULE_ORDER.indexOf(b.name)
-      )
+    ? [...scan.modules].sort((a, b) => {
+        const sp = (STATUS_PRIORITY[a.status] ?? 1) - (STATUS_PRIORITY[b.status] ?? 1);
+        if (sp !== 0) return sp;
+        return MODULE_ORDER.indexOf(a.name) - MODULE_ORDER.indexOf(b.name);
+      })
     : [];
+
+  $: completedModules = scan?.modules?.filter(
+    m => m.status === 'completed' || m.status === 'failed'
+  ).length ?? 0;
+  $: totalModules = scan?.modules?.length ?? 0;
+  $: progressPct = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
 
   function formatDuration(start, end) {
     if (!start || !end) return null;
@@ -88,14 +118,19 @@
         <h1>{scan.domain}</h1>
         <ScanStatus status={scan.status} />
         {#if scan.status === 'completed' || scan.status === 'failed'}
-          <button class="rescan-btn" on:click={handleRescan} disabled={rescanning}>
-            {#if rescanning}
-              <span class="spinner"></span>
-            {:else}
-              ↺
-            {/if}
-            Rescan
-          </button>
+          <div class="rescan-group">
+            <button class="rescan-btn" on:click={handleRescanNew} disabled={rescanning} title="Créer une nouvelle entrée">
+              {#if rescanning}
+                <span class="spinner"></span>
+              {:else}
+                ↺
+              {/if}
+              Nouveau
+            </button>
+            <button class="rescan-btn rescan-overwrite" on:click={handleRescanInPlace} disabled={rescanning} title="Écraser ce scan">
+              Écraser
+            </button>
+          </div>
         {/if}
       </div>
       {#if scan.completed_at}
@@ -105,6 +140,10 @@
         {/if}
       {:else if scan.status === 'running'}
         <p class="meta">Scan en cours, résultats disponibles au fil de l'eau…</p>
+        <div class="progress-wrap">
+          <div class="progress-bar" style="width:{progressPct}%"></div>
+        </div>
+        <p class="progress-label">{completedModules} / {totalModules} modules terminés</p>
       {/if}
     </header>
 
@@ -159,22 +198,30 @@
     gap: 14px;
     flex-wrap: wrap;
   }
+  .rescan-group {
+    display: flex;
+    margin-left: auto;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #334155;
+  }
   .rescan-btn {
     display: flex;
     align-items: center;
     gap: 6px;
     background: #1e293b;
     color: #94a3b8;
-    border: 1px solid #334155;
-    border-radius: 8px;
+    border: none;
+    border-right: 1px solid #334155;
     padding: 6px 14px;
     font-size: 0.875rem;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
-    margin-left: auto;
   }
+  .rescan-btn:last-child { border-right: none; }
   .rescan-btn:hover:not(:disabled) { background: #263548; color: #e2e8f0; }
   .rescan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .rescan-overwrite { color: #64748b; }
   .spinner {
     width: 12px; height: 12px;
     border: 2px solid rgba(148,163,184,0.3);
@@ -194,6 +241,25 @@
     color: #64748b;
     font-size: 0.85rem;
     margin: 6px 0 0;
+  }
+
+  .progress-wrap {
+    height: 4px;
+    background: #1e293b;
+    border-radius: 2px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: #3b82f6;
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+  .progress-label {
+    font-size: 0.78rem;
+    color: #475569;
+    margin: 4px 0 0;
   }
 
   .score-section {

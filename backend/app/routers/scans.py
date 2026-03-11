@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.limiter import limiter
-from app.models import Scan, ScanModule
+from app.models import Scan, ScanModule, now_utc
 from app.schemas import ScanCreate, ScanOut, ScanSummary
 from app.scanners.orchestrator import run_scan
 
@@ -53,6 +53,41 @@ async def get_scan(scan_id: str, db: AsyncSession = Depends(get_db)):
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan introuvable")
     return scan
+
+
+@router.post("/{scan_id}/rescan", response_model=ScanOut)
+@limiter.limit("5/minute")
+async def rescan_in_place(
+    scan_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Scan).options(SCAN_WITH_MODULES).where(Scan.id == scan_id)
+    )
+    scan = result.scalar_one_or_none()
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan introuvable")
+
+    for module in scan.modules:
+        await db.delete(module)
+
+    scan.status = "pending"
+    scan.score = None
+    scan.grade = None
+    scan.started_at = None
+    scan.completed_at = None
+    scan.created_at = now_utc()
+
+    await db.commit()
+
+    background_tasks.add_task(run_scan, scan.id, scan.domain)
+
+    result = await db.execute(
+        select(Scan).options(SCAN_WITH_MODULES).where(Scan.id == scan.id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{scan_id}", status_code=204)

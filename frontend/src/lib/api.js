@@ -25,6 +25,15 @@ export async function listScans() {
   return res.json();
 }
 
+export async function rescanInPlace(id) {
+  const res = await fetch(`${BASE}/scans/${id}/rescan`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Erreur ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function deleteScan(id) {
   const res = await fetch(`${BASE}/scans/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Erreur ${res.status}`);

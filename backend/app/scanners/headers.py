@@ -1,4 +1,6 @@
 import httpx
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 
@@ -53,6 +55,43 @@ LEAKY_HEADERS = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-vers
 COOKIE_PROBE_PATHS = ["/", "/login", "/signin", "/sign-in", "/auth", "/account", "/admin"]
 
 
+class _SRIParser(HTMLParser):
+    """Collecte les ressources externes sans attribut integrity."""
+
+    def __init__(self, origin_host: str) -> None:
+        super().__init__()
+        self.origin_host = origin_host
+        # set de (tag, host) déjà signalés pour dédupliquer par hôte externe
+        self.seen: set[tuple[str, str]] = set()
+        self.issues: list[tuple[str, str, str]] = []  # (tag, url, host)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        d = dict(attrs)
+        if tag == "script":
+            url = d.get("src") or ""
+        elif tag == "link" and "stylesheet" in (d.get("rel") or "").lower():
+            url = d.get("href") or ""
+        else:
+            return
+
+        if not url:
+            return
+
+        parsed = urlparse(url)
+        host = parsed.netloc
+        # Ignorer les ressources same-origin et les URLs relatives
+        if not host or host == self.origin_host:
+            return
+        # Ignorer si integrity est présent
+        if d.get("integrity"):
+            return
+
+        key = (tag, host)
+        if key not in self.seen:
+            self.seen.add(key)
+            self.issues.append((tag, url, host))
+
+
 class HeadersScanner(BaseScanner):
     name = "headers"
     weight = 0.15
@@ -61,8 +100,10 @@ class HeadersScanner(BaseScanner):
         findings: list[FindingData] = []
         base_url = f"https://{domain}"
 
+        # verify=False : le scanner TLS gère séparément les problèmes de certificat ;
+        # ici on veut analyser les headers et cookies même si le cert est expiré/invalide.
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=10, verify=False) as client:
                 response = await client.get(base_url)
                 headers = {k.lower(): v for k, v in response.headers.items()}
         except Exception as exc:
@@ -93,26 +134,53 @@ class HeadersScanner(BaseScanner):
                     remediation=f"Supprimer ou masquer l'en-tête {header}.",
                 ))
 
-        # Analyse des cookies sur plusieurs pages
-        await _check_cookies(domain, base_url, client if False else None, findings)
+        # Subresource Integrity : ressources externes sans attribut integrity
+        sri_parser = _SRIParser(domain)
+        try:
+            sri_parser.feed(response.text)
+        except Exception:
+            pass
+        for tag, url, host in sri_parser.issues:
+            findings.append(FindingData(
+                severity="medium",
+                title=f"SRI manquant sur une ressource externe ({tag})",
+                description=f"La ressource chargée depuis '{host}' n'a pas d'attribut integrity.",
+                remediation=(
+                    f"Ajouter integrity=\"sha384-<hash>\" sur le tag {tag} pointant vers {url}. "
+                    "Générer le hash avec : openssl dgst -sha384 -binary fichier.js | openssl base64 -A"
+                ),
+            ))
+
+        # Analyse des cookies sur plusieurs pages.
+        # On sonde les deux schémas pour couvrir deux cas distincts :
+        #   - http:// → détecte les cookies posés sur la chaîne de redirection
+        #               HTTP→HTTPS (301/302) sans l'attribut Secure
+        #   - https:// → détecte les cookies posés directement sur HTTPS sans
+        #               Secure (sites qui bloquent le port 80, ou cookies
+        #               accessibles en clair si un utilisateur passe en HTTP)
+        # Le seen_issues partagé évite les doublons entre les deux passes.
+        seen_issues: set[str] = set()
+        await _check_cookies(f"http://{domain}", findings, seen_issues)
+        await _check_cookies(base_url, findings, seen_issues)
 
         return ScanResult.from_findings(findings)
 
 
-async def _check_cookies(domain: str, base_url: str, _unused, findings: list) -> None:
+async def _check_cookies(base_url: str, findings: list, seen_issues: set[str]) -> None:
     """Probe plusieurs chemins communs et analyse les attributs des Set-Cookie."""
-    seen_issues: set[str] = set()  # évite les doublons si plusieurs pages posent les mêmes cookies
-
-    async with httpx.AsyncClient(follow_redirects=True, timeout=8) as client:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=8, verify=False) as client:
         for path in COOKIE_PROBE_PATHS:
             try:
                 resp = await client.get(f"{base_url}{path}")
             except Exception:
                 continue
 
-            raw_cookies = resp.headers.get_list("set-cookie")
-            for raw in raw_cookies:
-                _analyze_cookie(raw, path, seen_issues, findings)
+            # Inspecter toutes les réponses de la chaîne de redirection,
+            # pas uniquement la finale — les cookies de session sont souvent
+            # posés sur les 301/302 (ex. HTTP → HTTPS).
+            for r in [*resp.history, resp]:
+                for raw in r.headers.get_list("set-cookie"):
+                    _analyze_cookie(raw, path, seen_issues, findings)
 
 
 def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
