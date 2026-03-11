@@ -8,21 +8,23 @@
   let scans = [];
   let loading = false;
   let error = '';
+  let deleteConfirm = null; // id du scan en attente de confirmation
 
   onMount(async () => {
     try {
       scans = await listScans();
-    } catch (e) {
+    } catch {
       // silencieux au chargement
     }
   });
 
   async function handleSubmit() {
-    if (!domain.trim()) return;
+    const d = domain.trim();
+    if (!d) return;
     loading = true;
     error = '';
     try {
-      const scan = await createScan(domain.trim());
+      const scan = await createScan(d);
       goto(`/scan/${scan.id}`);
     } catch (e) {
       error = e.message;
@@ -31,11 +33,17 @@
   }
 
   async function handleDelete(id) {
+    if (deleteConfirm !== id) {
+      deleteConfirm = id;
+      setTimeout(() => { if (deleteConfirm === id) deleteConfirm = null; }, 3000);
+      return;
+    }
+    deleteConfirm = null;
     try {
       await deleteScan(id);
       scans = scans.filter(s => s.id !== id);
     } catch (e) {
-      error = e.message;
+      error = `Suppression impossible : ${e.message}`;
     }
   }
 
@@ -69,11 +77,15 @@
           spellcheck="false"
         />
         <button type="submit" disabled={loading || !domain.trim()}>
-          {loading ? 'Lancement…' : 'Scanner'}
+          {#if loading}
+            <span class="spinner"></span> Lancement…
+          {:else}
+            Scanner
+          {/if}
         </button>
       </div>
       {#if error}
-        <p class="error">{error}</p>
+        <p class="error" role="alert">⚠ {error}</p>
       {/if}
     </form>
   </section>
@@ -95,7 +107,14 @@
               {/if}
               <span class="scan-date">{formatDate(scan.created_at)}</span>
             </a>
-            <button class="delete-btn" on:click={() => handleDelete(scan.id)} title="Supprimer">✕</button>
+            <button
+              class="delete-btn"
+              class:confirm={deleteConfirm === scan.id}
+              on:click={() => handleDelete(scan.id)}
+              title={deleteConfirm === scan.id ? 'Cliquer à nouveau pour confirmer' : 'Supprimer'}
+            >
+              {deleteConfirm === scan.id ? '?' : '✕'}
+            </button>
           </div>
         {/each}
       </div>
@@ -118,20 +137,9 @@
     padding: 48px 20px;
   }
 
-  header {
-    text-align: center;
-    margin-bottom: 40px;
-  }
-  h1 {
-    font-size: 2rem;
-    font-weight: 800;
-    margin: 0 0 8px;
-    color: #f8fafc;
-  }
-  header p {
-    color: #64748b;
-    margin: 0;
-  }
+  header { text-align: center; margin-bottom: 40px; }
+  h1 { font-size: 2rem; font-weight: 800; margin: 0 0 8px; color: #f8fafc; }
+  header p { color: #64748b; margin: 0; }
 
   .scan-form {
     background: #1e293b;
@@ -140,10 +148,7 @@
     padding: 28px;
     margin-bottom: 40px;
   }
-  .input-row {
-    display: flex;
-    gap: 10px;
-  }
+  .input-row { display: flex; gap: 10px; }
   input {
     flex: 1;
     background: #0f172a;
@@ -159,6 +164,9 @@
   input:disabled { opacity: 0.5; }
 
   button[type="submit"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     background: #3b82f6;
     color: #fff;
     border: none;
@@ -173,20 +181,33 @@
   button[type="submit"]:hover:not(:disabled) { background: #2563eb; }
   button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   .error {
     color: #f87171;
     font-size: 0.875rem;
     margin: 10px 0 0;
+    background: #450a0a44;
+    border-left: 3px solid #ef4444;
+    padding: 8px 12px;
+    border-radius: 0 4px 4px 0;
   }
 
   .history h2 {
-    font-size: 1.1rem;
-    font-weight: 600;
     color: #94a3b8;
     margin: 0 0 16px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-size: 0.8rem;
+    font-weight: 600;
   }
   .scan-list { display: flex; flex-direction: column; gap: 8px; }
 
@@ -207,19 +228,15 @@
     text-decoration: none;
     color: inherit;
     transition: background 0.15s;
+    min-width: 0;
   }
   .scan-link:hover { background: #263548; }
 
-  .scan-domain { font-weight: 600; font-size: 0.95rem; flex: 1; }
-  .scan-score  { font-size: 0.85rem; color: #64748b; }
-  .scan-date   { font-size: 0.75rem; color: #475569; white-space: nowrap; }
+  .scan-domain { font-weight: 600; font-size: 0.95rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scan-score  { font-size: 0.85rem; color: #64748b; flex-shrink: 0; }
+  .scan-date   { font-size: 0.75rem; color: #475569; white-space: nowrap; flex-shrink: 0; }
 
-  .scan-grade {
-    font-size: 1.1rem;
-    font-weight: 800;
-    width: 28px;
-    text-align: center;
-  }
+  .scan-grade { font-size: 1.1rem; font-weight: 800; width: 28px; text-align: center; flex-shrink: 0; }
   .grade-A { color: #22c55e; }
   .grade-B { color: #84cc16; }
   .grade-C { color: #eab308; }
@@ -233,7 +250,9 @@
     color: #475569;
     cursor: pointer;
     font-size: 0.8rem;
-    transition: color 0.15s;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
   }
   .delete-btn:hover { color: #f87171; }
+  .delete-btn.confirm { color: #f97316; font-weight: 700; font-size: 1rem; }
 </style>

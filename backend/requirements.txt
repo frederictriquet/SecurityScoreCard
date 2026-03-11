@@ -7,3 +7,4 @@ dnspython==2.7.0
 python-whois==0.9.5
 pydantic==2.10.3
 pydantic-settings==2.6.1
+slowapi==0.1.9

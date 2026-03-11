@@ -9,7 +9,8 @@
   let scan = null;
   let error = '';
   let interval = null;
-
+  let retries = 0;
+  const MAX_RETRIES = 3;
   const POLL_INTERVAL = 2000;
 
   $: id = $page.params.id;
@@ -17,12 +18,17 @@
   async function fetchScan() {
     try {
       scan = await getScan(id);
+      retries = 0;
       if (scan.status === 'completed' || scan.status === 'failed') {
         clearInterval(interval);
       }
     } catch (e) {
-      error = e.message;
-      clearInterval(interval);
+      retries++;
+      if (retries >= MAX_RETRIES) {
+        error = `Impossible de joindre le serveur (${e.message})`;
+        clearInterval(interval);
+      }
+      // sinon on réessaie silencieusement au prochain tick
     }
   }
 

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.limiter import limiter
 from app.models import Scan, ScanModule
 from app.schemas import ScanCreate, ScanOut, ScanSummary
 from app.scanners.orchestrator import run_scan
@@ -16,7 +17,9 @@ SCAN_WITH_MODULES = (
 
 
 @router.post("", response_model=ScanOut, status_code=201)
+@limiter.limit("5/minute")
 async def create_scan(
+    request: Request,
     body: ScanCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
