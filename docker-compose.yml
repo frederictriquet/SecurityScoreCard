@@ -1,6 +1,7 @@
 services:
   backend:
     build: ./backend
+    image: ${BACKEND_IMAGE:-securityscorecard-backend:local}
     volumes:
       - db_data:/data
     env_file: .env
@@ -13,6 +14,7 @@ services:
 
   frontend:
     build: ./frontend
+    image: ${FRONTEND_IMAGE:-securityscorecard-frontend:local}
     ports:
       - "80:80"
     depends_on:
