@@ -12,6 +12,6 @@
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.53.4",
     "svelte": "^5.0.0",
-    "vite": "^6.0.0"
+    "vite": "^7.3.1"
   }
 }
