@@ -148,12 +148,12 @@ class TestGradesConfig:
 
 
 class TestScannersConfig:
-    def test_six_scanners_registered(self):
-        assert len(SCANNERS) == 6
+    def test_seven_scanners_registered(self):
+        assert len(SCANNERS) == 7
 
     def test_scanner_names(self):
         names = {s.name for s in SCANNERS}
-        assert names == {"dns", "tls", "headers", "reputation", "subdomains", "leaks"}
+        assert names == {"dns", "tls", "headers", "reputation", "subdomains", "leaks", "ports"}
 
     def test_weights_sum_to_one(self):
         total = sum(s.weight for s in SCANNERS)
@@ -173,9 +173,10 @@ class TestScannersConfig:
         assert weights["dns"] == 0.20
         assert weights["tls"] == 0.20
         assert weights["headers"] == 0.15
-        assert weights["reputation"] == 0.20
+        assert weights["reputation"] == 0.15
         assert weights["subdomains"] == 0.10
-        assert weights["leaks"] == 0.15
+        assert weights["leaks"] == 0.10
+        assert weights["ports"] == 0.10
 
 
 # ===================================================================

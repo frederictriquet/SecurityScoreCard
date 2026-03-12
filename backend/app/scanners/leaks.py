@@ -7,7 +7,7 @@ HIBP_URL = "https://haveibeenpwned.com/api/v3/breacheddomain/{domain}"
 
 class LeaksScanner(BaseScanner):
     name = "leaks"
-    weight = 0.15
+    weight = 0.10
 
     async def scan(self, domain: str) -> ScanResult:
         findings: list[FindingData] = []

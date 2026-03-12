@@ -24,7 +24,7 @@ class TestLeaksScannerMeta:
         assert scanner.name == "leaks"
 
     def test_weight(self, scanner):
-        assert scanner.weight == 0.15
+        assert scanner.weight == 0.10
 
     def test_hibp_url_template(self):
         assert "{domain}" in HIBP_URL

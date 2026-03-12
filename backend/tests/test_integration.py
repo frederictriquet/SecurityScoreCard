@@ -137,7 +137,7 @@ def _reputation_patches():
 
 
 class TestFullIntegration:
-    """Flux Requête API → Orchestrateur → 6 Scanners réels → DB → API GET."""
+    """Flux Requête API → Orchestrateur → 7 Scanners réels → DB → API GET."""
 
     async def test_full_scan_flow_with_real_scanners(self, client):
         """
@@ -174,6 +174,9 @@ class TestFullIntegration:
             rep_patches["env_key"],
             # Subdomains : pas de sous-domaines
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            # Ports : nmap non disponible + whois mocké
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             # Leaks + Headers : mock HTTP via respx
             respx.mock,
         ):
@@ -221,9 +224,9 @@ class TestFullIntegration:
 
         # 6 modules créés (un par scanner)
         modules = data["modules"]
-        assert len(modules) == 6
+        assert len(modules) == 7
         module_names = {m["name"] for m in modules}
-        assert module_names == {"dns", "tls", "headers", "reputation", "subdomains", "leaks"}
+        assert module_names == {"dns", "tls", "headers", "reputation", "subdomains", "leaks", "ports"}
 
         # Chaque module a un score, un statut completed, et des timestamps
         for m in modules:
@@ -288,6 +291,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -346,6 +351,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -389,6 +396,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -429,7 +438,7 @@ class TestFullIntegration:
 
         # Les modules sont nouveaux (IDs différents)
         assert first_module_ids.isdisjoint(second_module_ids)
-        assert len(second_data["modules"]) == 6
+        assert len(second_data["modules"]) == 7
 
     async def test_scanner_failure_handled_in_full_flow(self, client):
         """Un scanner qui crashe n'empêche pas les autres de compléter."""
@@ -447,6 +456,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -480,7 +491,7 @@ class TestFullIntegration:
         assert any("TLS" in f["title"] or "impossible" in f["title"].lower() for f in tls_findings)
 
         # Les autres scanners ont complété normalement
-        for name in ("dns", "headers", "reputation", "subdomains", "leaks"):
+        for name in ("dns", "headers", "reputation", "subdomains", "leaks", "ports"):
             assert modules_by_name[name]["status"] == "completed"
             assert modules_by_name[name]["score"] is not None
 
@@ -498,6 +509,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -519,7 +532,7 @@ class TestFullIntegration:
             # Confirmer que le scan existe
             resp = await client.get(f"/api/scans/{scan_id}")
             assert resp.status_code == 200
-            assert len(resp.json()["modules"]) == 6
+            assert len(resp.json()["modules"]) == 7
 
             # Supprimer
             resp = await client.delete(f"/api/scans/{scan_id}")
@@ -551,6 +564,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -603,6 +618,8 @@ class TestFullIntegration:
             rep_patches["spamhaus"],
             rep_patches["env_key"],
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
+            patch("app.scanners.ports.is_available", return_value=False),
+            patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
             respx.mock,
         ):
             respx.get(url__regex=r".*haveibeenpwned.*").mock(

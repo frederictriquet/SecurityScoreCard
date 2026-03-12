@@ -30,7 +30,7 @@ class TestReputationScannerMeta:
         assert scanner.name == "reputation"
 
     def test_weight(self, scanner):
-        assert scanner.weight == 0.20
+        assert scanner.weight == 0.15
 
 
 # ===================================================================

@@ -10,7 +10,7 @@ SPAMHAUS_ZEN = "zen.spamhaus.org"
 
 class ReputationScanner(BaseScanner):
     name = "reputation"
-    weight = 0.20
+    weight = 0.15
 
     async def scan(self, domain: str) -> ScanResult:
         findings: list[FindingData] = []
