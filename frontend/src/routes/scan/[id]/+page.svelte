@@ -27,7 +27,7 @@
     } catch (e) {
       retries++;
       if (retries >= MAX_RETRIES) {
-        error = `Impossible de joindre le serveur (${e.message})`;
+        error = `Could not reach the server (${e.message})`;
         clearInterval(interval);
         interval = null;
       }
@@ -73,7 +73,7 @@
     }
   }
 
-  const MODULE_ORDER = ['dns', 'tls', 'headers', 'reputation', 'subdomains', 'leaks'];
+  const MODULE_ORDER = ['dns', 'tls', 'headers', 'reputation', 'subdomains', 'leaks', 'ports'];
 
   // Priorité d'affichage : running > pending > completed/failed
   const STATUS_PRIORITY = { running: 0, pending: 1, completed: 2, failed: 2 };
@@ -92,6 +92,12 @@
   $: totalModules = scan?.modules?.length ?? 0;
   $: progressPct = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
 
+  let allCollapsed = false;
+  let collapseStates = {};
+
+  function foldAll()   { allCollapsed = true;  collapseStates = Object.fromEntries(orderedModules.map(m => [m.id, true])); }
+  function unfoldAll() { allCollapsed = false; collapseStates = Object.fromEntries(orderedModules.map(m => [m.id, false])); }
+
   function formatDuration(start, end) {
     if (!start || !end) return null;
     const ms = new Date(end) - new Date(start);
@@ -100,18 +106,18 @@
 </script>
 
 <svelte:head>
-  <title>{scan ? `${scan.domain} — SecurityScoreCard` : 'Scan en cours…'}</title>
+  <title>{scan ? `${scan.domain} — SecurityScoreCard` : 'Scanning…'}</title>
 </svelte:head>
 
 <main>
   <nav>
-    <a href="/" class="back">← Retour</a>
+    <a href="/" class="back">← Back</a>
   </nav>
 
   {#if error}
     <div class="error-box">{error}</div>
   {:else if !scan}
-    <div class="loading">Chargement…</div>
+    <div class="loading">Loading…</div>
   {:else}
     <header>
       <div class="domain-row">
@@ -119,16 +125,16 @@
         <ScanStatus status={scan.status} />
         {#if scan.status === 'completed' || scan.status === 'failed'}
           <div class="rescan-group">
-            <button class="rescan-btn" on:click={handleRescanNew} disabled={rescanning} title="Créer une nouvelle entrée">
+            <button class="rescan-btn" on:click={handleRescanNew} disabled={rescanning} title="Create a new entry">
               {#if rescanning}
                 <span class="spinner"></span>
               {:else}
                 ↺
               {/if}
-              Nouveau
+              New
             </button>
-            <button class="rescan-btn rescan-overwrite" on:click={handleRescanInPlace} disabled={rescanning} title="Écraser ce scan">
-              Écraser
+            <button class="rescan-btn rescan-overwrite" on:click={handleRescanInPlace} disabled={rescanning} title="Overwrite this scan">
+              Rescan
             </button>
           </div>
         {/if}
@@ -136,14 +142,14 @@
       {#if scan.completed_at}
         {@const dur = formatDuration(scan.started_at, scan.completed_at)}
         {#if dur}
-          <p class="meta">Scan terminé en {dur}</p>
+          <p class="meta">Scan completed in {dur}</p>
         {/if}
       {:else if scan.status === 'running'}
-        <p class="meta">Scan en cours, résultats disponibles au fil de l'eau…</p>
+        <p class="meta">Scan in progress, results appear as they come…</p>
         <div class="progress-wrap">
           <div class="progress-bar" style="width:{progressPct}%"></div>
         </div>
-        <p class="progress-label">{completedModules} / {totalModules} modules terminés</p>
+        <p class="progress-label">{completedModules} / {totalModules} modules completed</p>
       {/if}
     </header>
 
@@ -158,9 +164,14 @@
       </div>
     </div>
 
+    <div class="modules-toolbar">
+      <button class="fold-btn" on:click={foldAll} disabled={allCollapsed}>Collapse all</button>
+      <button class="fold-btn" on:click={unfoldAll} disabled={!allCollapsed}>Expand all</button>
+    </div>
+
     <div class="modules">
       {#each orderedModules as module (module.id)}
-        <ModuleCard {module} />
+        <ModuleCard {module} bind:collapsed={collapseStates[module.id]} />
       {/each}
     </div>
   {/if}
@@ -176,7 +187,7 @@
   }
 
   main {
-    max-width: 820px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 32px 20px 60px;
   }
@@ -286,7 +297,37 @@
     flex-shrink: 0;
   }
 
-  .modules { display: flex; flex-direction: column; gap: 12px; }
+  .modules-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .fold-btn {
+    background: none;
+    border: 1px solid #334155;
+    color: #64748b;
+    font-size: 0.75rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .fold-btn:hover:not(:disabled) { color: #e2e8f0; border-color: #475569; }
+  .fold-btn:disabled { opacity: 0.35; cursor: default; }
+
+  .modules {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  @media (min-width: 900px) {
+    .modules { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (min-width: 1300px) {
+    .modules { grid-template-columns: repeat(3, 1fr); }
+  }
 
   .loading { color: #64748b; padding: 40px; text-align: center; }
   .error-box {

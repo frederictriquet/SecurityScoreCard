@@ -3,10 +3,10 @@
   export let status = 'pending';
 
   const config = {
-    pending:   { label: 'En attente',  cls: 'pending'   },
-    running:   { label: 'En cours…',   cls: 'running'   },
-    completed: { label: 'Terminé',     cls: 'completed' },
-    failed:    { label: 'Échec',       cls: 'failed'    }
+    pending:   { label: 'Pending',     cls: 'pending'   },
+    running:   { label: 'Running…',    cls: 'running'   },
+    completed: { label: 'Completed',   cls: 'completed' },
+    failed:    { label: 'Failed',      cls: 'failed'    }
   };
 
   $: cfg = config[status] ?? config.pending;

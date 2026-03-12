@@ -3,17 +3,23 @@
   import ScanStatus from './ScanStatus.svelte';
 
   export let module;
+  export let collapsed = false;
 
   const MODULE_LABELS = {
     dns:        { label: 'DNS Health',    icon: '🌐' },
     tls:        { label: 'TLS / SSL',     icon: '🔒' },
     headers:    { label: 'HTTP Headers',  icon: '📋' },
-    reputation: { label: 'IP Réputation', icon: '🛡️' },
-    subdomains: { label: 'Sous-domaines', icon: '🗺️' },
-    leaks:      { label: 'Fuites (HIBP)', icon: '🔑' }
+    reputation: { label: 'IP Reputation', icon: '🛡️' },
+    subdomains: { label: 'Subdomains',    icon: '🗺️' },
+    leaks:      { label: 'Leaks (HIBP)',  icon: '🔑' },
+    ports:      { label: 'Ports & WHOIS', icon: '🔌' }
   };
 
   $: meta = MODULE_LABELS[module.name] ?? { label: module.name, icon: '🔍' };
+
+  function toggle() { collapsed = !collapsed; }
+
+  $: findingsCount = module.findings?.length ?? 0;
 
   $: scoreColor =
     module.score == null  ? '#6b7280'
@@ -22,22 +28,34 @@
     : module.score >= 50  ? '#f97316'
     : '#ef4444';
 
+  const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+  $: sortedFindings = [...(module.findings ?? [])].sort((a, b) => {
+    const s = (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5);
+    return s !== 0 ? s : (a.title ?? '').localeCompare(b.title ?? '');
+  });
+
   $: criticalCount = module.findings?.filter(f => f.severity === 'critical').length ?? 0;
   $: highCount     = module.findings?.filter(f => f.severity === 'high').length ?? 0;
 </script>
 
-<div class="card">
-  <div class="card-header">
+<div class="card" class:collapsed>
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="card-header" on:click={toggle}>
     <span class="icon">{meta.icon}</span>
     <div class="meta">
       <span class="name">{meta.label}</span>
       <div class="badges">
         <ScanStatus status={module.status} />
         {#if criticalCount > 0}
-          <span class="badge-crit">{criticalCount} critique{criticalCount > 1 ? 's' : ''}</span>
+          <span class="badge-crit">{criticalCount} critical</span>
         {/if}
         {#if highCount > 0}
-          <span class="badge-high">{highCount} élevé{highCount > 1 ? 's' : ''}</span>
+          <span class="badge-high">{highCount} high</span>
+        {/if}
+        {#if collapsed && findingsCount > 0}
+          <span class="badge-count">{findingsCount} finding{findingsCount > 1 ? 's' : ''}</span>
         {/if}
       </div>
     </div>
@@ -49,16 +67,19 @@
         <span class="score-val" style="color:#4b5563">—</span>
       {/if}
     </div>
+    <span class="chevron" class:open={!collapsed}>▸</span>
   </div>
 
-  {#if module.findings?.length > 0}
-    <div class="findings">
-      {#each module.findings as finding (finding.id)}
-        <FindingRow {finding} />
-      {/each}
-    </div>
-  {:else if module.status === 'completed'}
-    <p class="no-findings">✅ Aucun problème détecté</p>
+  {#if !collapsed}
+    {#if module.findings?.length > 0}
+      <div class="findings">
+        {#each sortedFindings as finding (finding.id)}
+          <FindingRow {finding} />
+        {/each}
+      </div>
+    {:else if module.status === 'completed'}
+      <p class="no-findings">No issues found</p>
+    {/if}
   {/if}
 </div>
 
@@ -98,6 +119,25 @@
   .score-block { display: flex; align-items: baseline; gap: 2px; }
   .score-val { font-size: 1.75rem; font-weight: 800; }
   .score-max { font-size: 0.75rem; color: #6b7280; }
+
+  .card-header {
+    cursor: pointer;
+    user-select: none;
+  }
+  .card-header:hover { background: #263548; }
+
+  .chevron {
+    color: #4b5563;
+    font-size: 0.85rem;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .chevron.open { transform: rotate(90deg); }
+
+  .badge-count {
+    font-size: 0.65rem; font-weight: 600; padding: 2px 7px;
+    border-radius: 4px; background: #1e3a5f; color: #93c5fd;
+  }
 
   .findings {
     padding: 0 12px 12px;

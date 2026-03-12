@@ -2,10 +2,10 @@
   export let finding;
 
   const sev = {
-    critical: { label: 'Critique', cls: 'critical' },
-    high:     { label: 'Élevé',    cls: 'high'     },
-    medium:   { label: 'Moyen',    cls: 'medium'   },
-    low:      { label: 'Faible',   cls: 'low'      },
+    critical: { label: 'Critical', cls: 'critical' },
+    high:     { label: 'High',     cls: 'high'     },
+    medium:   { label: 'Medium',   cls: 'medium'   },
+    low:      { label: 'Low',      cls: 'low'      },
     info:     { label: 'Info',     cls: 'info'     }
   };
 
@@ -24,7 +24,7 @@
       <p class="desc">{finding.description}</p>
       {#if finding.remediation}
         <div class="remed">
-          <span class="remed-label">Remédiation :</span>
+          <span class="remed-label">Remediation:</span>
           {finding.remediation}
         </div>
       {/if}

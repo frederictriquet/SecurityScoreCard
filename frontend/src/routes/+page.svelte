@@ -43,12 +43,12 @@
       await deleteScan(id);
       scans = scans.filter(s => s.id !== id);
     } catch (e) {
-      error = `Suppression impossible : ${e.message}`;
+      error = `Could not delete: ${e.message}`;
     }
   }
 
   function formatDate(iso) {
-    return new Date(iso).toLocaleString('fr-FR', {
+    return new Date(iso).toLocaleString('en-US', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     });
@@ -62,7 +62,7 @@
 <main>
   <header>
     <h1>🔐 SecurityScoreCard</h1>
-    <p>Audit passif de sécurité pour votre domaine</p>
+    <p>Passive security audit for your domain</p>
   </header>
 
   <section class="scan-form">
@@ -71,16 +71,16 @@
         <input
           type="text"
           bind:value={domain}
-          placeholder="exemple.com"
+          placeholder="example.com"
           disabled={loading}
           autocomplete="off"
           spellcheck="false"
         />
         <button type="submit" disabled={loading || !domain.trim()}>
           {#if loading}
-            <span class="spinner"></span> Lancement…
+            <span class="spinner"></span> Scanning…
           {:else}
-            Scanner
+            Scan
           {/if}
         </button>
       </div>
@@ -92,7 +92,7 @@
 
   {#if scans.length > 0}
     <section class="history">
-      <h2>Scans récents</h2>
+      <h2>Recent scans</h2>
       <div class="scan-list">
         {#each scans as scan (scan.id)}
           <div class="scan-row">
@@ -111,7 +111,7 @@
               class="delete-btn"
               class:confirm={deleteConfirm === scan.id}
               on:click={() => handleDelete(scan.id)}
-              title={deleteConfirm === scan.id ? 'Cliquer à nouveau pour confirmer' : 'Supprimer'}
+              title={deleteConfirm === scan.id ? 'Click again to confirm' : 'Delete'}
             >
               {deleteConfirm === scan.id ? '?' : '✕'}
             </button>
