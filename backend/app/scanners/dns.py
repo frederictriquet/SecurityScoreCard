@@ -1,4 +1,7 @@
 import asyncio
+import random
+import string
+
 import dns.resolver
 import dns.asyncresolver
 
@@ -20,6 +23,15 @@ class DnsScanner(BaseScanner):
             self._check_dkim(domain, resolver, findings),
             self._check_dnssec(domain, resolver, findings),
             self._check_mx(domain, resolver, findings),
+            self._check_caa(domain, resolver, findings),
+            self._check_mta_sts(domain, resolver, findings),
+            self._check_dane(domain, resolver, findings),
+            self._check_spf_lookups(domain, resolver, findings),
+            self._check_tls_rpt(domain, resolver, findings),
+            self._check_bimi(domain, resolver, findings),
+            self._check_axfr(domain, resolver, findings),
+            self._check_wildcard(domain, resolver, findings),
+            self._check_ns_redundancy(domain, resolver, findings),
         )
 
         return ScanResult.from_findings(findings)
@@ -89,7 +101,6 @@ class DnsScanner(BaseScanner):
             pass
 
     async def _check_dkim(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
-        # Heuristique : tester les sélecteurs courants
         selectors = ["default", "google", "mail", "dkim", "k1", "selector1", "selector2"]
         found = False
         for selector in selectors:
@@ -129,3 +140,195 @@ class DnsScanner(BaseScanner):
                 title="Pas d'enregistrement MX",
                 description="Le domaine ne semble pas recevoir d'emails (absence de MX).",
             ))
+
+    # --- Phase 1 : nouveaux checks ---
+
+    async def _check_caa(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            await resolver.resolve(domain, "CAA")
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            findings.append(FindingData(
+                severity="medium",
+                title="CAA manquant",
+                description="Aucun enregistrement CAA. N'importe quelle autorité de certification peut émettre un certificat.",
+                remediation='Ajouter un enregistrement CAA : 0 issue "letsencrypt.org" (adapter selon votre CA).',
+            ))
+        except Exception:
+            pass
+
+    async def _check_mta_sts(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            answers = await resolver.resolve(f"_mta-sts.{domain}", "TXT")
+            records = [r.to_text() for r in answers if "v=STSv1" in r.to_text()]
+            if not records:
+                raise dns.resolver.NoAnswer()
+        except Exception:
+            findings.append(FindingData(
+                severity="low",
+                title="MTA-STS non configuré",
+                description="MTA-STS n'est pas activé. Les emails en transit peuvent être interceptés (downgrade STARTTLS).",
+                remediation="Publier un enregistrement TXT _mta-sts et héberger la policy sur https://mta-sts.{domain}.",
+            ))
+
+    async def _check_dane(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            mx_answers = await resolver.resolve(domain, "MX")
+            mx_hosts = [str(r.exchange).rstrip(".") for r in mx_answers]
+        except Exception:
+            return  # Pas de MX, pas de DANE à vérifier
+
+        for mx_host in mx_hosts[:3]:
+            try:
+                await resolver.resolve(f"_25._tcp.{mx_host}", "TLSA")
+                return  # TLSA trouvé, OK
+            except Exception:
+                continue
+
+        findings.append(FindingData(
+            severity="low",
+            title="DANE/TLSA non configuré",
+            description="Aucun enregistrement TLSA pour les serveurs mail. DANE renforce la sécurité du transport email.",
+            remediation="Publier des enregistrements TLSA pour _25._tcp.{mx_host} (nécessite DNSSEC).",
+        ))
+
+    async def _check_spf_lookups(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            answers = await resolver.resolve(domain, "TXT")
+            spf = next(
+                (r.to_text().strip('"') for r in answers if "v=spf1" in r.to_text()),
+                None,
+            )
+            if not spf:
+                return
+
+            count = 0
+            for token in spf.split():
+                t = token.lower().lstrip("+-~?")
+                if t.startswith(("include:", "redirect=")):
+                    count += 1
+                elif t in ("a", "mx") or t.startswith(("a:", "a/", "mx:", "mx/", "ptr:", "ptr/", "exists:")):
+                    count += 1
+
+            if count > 10:
+                findings.append(FindingData(
+                    severity="medium",
+                    title=f"SPF : trop de lookups DNS ({count}/10 max)",
+                    description="Le RFC 7208 limite à 10 lookups DNS. Au-delà, le SPF est ignoré par certains serveurs.",
+                    remediation="Réduire les includes ou utiliser le SPF flattening.",
+                ))
+        except Exception:
+            pass
+
+    # --- Phase 3 : checks DNS supplémentaires ---
+
+    async def _check_tls_rpt(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            answers = await resolver.resolve(f"_smtp._tls.{domain}", "TXT")
+            records = [r.to_text() for r in answers if "v=TLSRPTv1" in r.to_text()]
+            if not records:
+                raise dns.resolver.NoAnswer()
+        except Exception:
+            findings.append(FindingData(
+                severity="low",
+                title="TLS-RPT non configuré",
+                description="Aucun enregistrement TLS-RPT (_smtp._tls). Les échecs de transport TLS email ne sont pas reportés.",
+                remediation="Ajouter : _smtp._tls TXT \"v=TLSRPTv1; rua=mailto:tls-reports@votre-domaine\"",
+            ))
+
+    async def _check_bimi(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            answers = await resolver.resolve(f"default._bimi.{domain}", "TXT")
+            records = [r.to_text() for r in answers if "v=BIMI1" in r.to_text()]
+            if not records:
+                raise dns.resolver.NoAnswer()
+        except Exception:
+            findings.append(FindingData(
+                severity="info",
+                title="BIMI non configuré",
+                description="Aucun enregistrement BIMI. Le logo de marque ne s'affichera pas dans les clients email compatibles.",
+                remediation="Publier : default._bimi TXT \"v=BIMI1; l=<URL du logo SVG>\" (nécessite DMARC p=quarantine ou reject).",
+            ))
+
+    async def _check_axfr(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            ns_answers = await resolver.resolve(domain, "NS")
+        except Exception:
+            return
+
+        for ns in ns_answers:
+            ns_host = str(ns.target).rstrip(".")
+            try:
+                loop = asyncio.get_event_loop()
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(None, _try_axfr, ns_host, domain),
+                    timeout=10,
+                )
+                if result:
+                    findings.append(FindingData(
+                        severity="critical",
+                        title=f"Transfert de zone DNS possible (AXFR) via {ns_host}",
+                        description="Le serveur DNS autorise le transfert de zone complet. Un attaquant peut obtenir tous les enregistrements DNS du domaine.",
+                        remediation="Restreindre les transferts de zone (AXFR) aux serveurs DNS secondaires autorisés.",
+                    ))
+                    return
+            except Exception:
+                continue
+
+    async def _check_wildcard(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        random_sub = "".join(random.choices(string.ascii_lowercase, k=16))
+        try:
+            await resolver.resolve(f"{random_sub}.{domain}", "A")
+            findings.append(FindingData(
+                severity="medium",
+                title="Wildcard DNS détecté",
+                description="Un enregistrement wildcard (*.domain) est configuré. Tous les sous-domaines, même inexistants, résolvent une adresse.",
+                remediation="Supprimer le wildcard DNS sauf si nécessaire. Cela peut masquer des sous-domaines mal configurés.",
+            ))
+        except Exception:
+            pass
+
+    async def _check_ns_redundancy(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        try:
+            ns_answers = await resolver.resolve(domain, "NS")
+            ns_hosts = [str(r.target).rstrip(".") for r in ns_answers]
+        except Exception:
+            return
+
+        if len(ns_hosts) < 2:
+            findings.append(FindingData(
+                severity="medium",
+                title=f"NS insuffisants ({len(ns_hosts)} serveur)",
+                description="Le domaine n'a qu'un seul serveur DNS. En cas de panne, le domaine devient inaccessible.",
+                remediation="Configurer au moins 2 serveurs DNS sur des réseaux distincts.",
+            ))
+            return
+
+        # Vérifier si les NS sont sur des réseaux /24 distincts
+        ns_ips: list[str] = []
+        for ns in ns_hosts[:4]:
+            try:
+                a = await resolver.resolve(ns, "A")
+                ns_ips.append(str(a[0]))
+            except Exception:
+                continue
+
+        if len(ns_ips) >= 2:
+            networks = {ip.rsplit(".", 1)[0] for ip in ns_ips}
+            if len(networks) < 2:
+                findings.append(FindingData(
+                    severity="medium",
+                    title="Serveurs NS sur le même réseau",
+                    description=f"Les {len(ns_ips)} serveurs DNS sont sur le même sous-réseau /24. Une panne réseau les affecterait tous.",
+                    remediation="Répartir les serveurs DNS sur des réseaux physiques différents.",
+                ))
+
+
+def _try_axfr(ns_host: str, domain: str) -> bool:
+    """Tente un transfert de zone AXFR (bloquant, à exécuter dans un executor)."""
+    import dns.query
+    import dns.zone
+    try:
+        zone = dns.zone.from_xfr(dns.query.xfr(ns_host, domain, timeout=5))
+        return len(zone.nodes) > 0
+    except Exception:
+        return False
