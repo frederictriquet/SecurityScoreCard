@@ -73,18 +73,22 @@ async def _fetch_subdomains(domain: str) -> set[str]:
 async def _check_takeover(subdomains: set[str], findings: list) -> None:
     async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
         for sub in list(subdomains)[:30]:  # limiter les requêtes
-            for signature in TAKEOVER_SIGNATURES:
-                try:
-                    resp = await client.get(f"https://{sub}")
-                    # Détection heuristique : réponse 404 d'un service tiers connu
-                    if resp.status_code == 404 and any(
-                        signature in str(resp.url) for signature in TAKEOVER_SIGNATURES
-                    ):
-                        findings.append(FindingData(
-                            severity="high",
-                            title=f"Potentiel subdomain takeover : {sub}",
-                            description=f"Le sous-domaine répond avec un 404 d'un service tiers ({signature}).",
-                            remediation=f"Supprimer le CNAME de {sub} ou réclamer la ressource sur le service.",
-                        ))
-                except Exception:
-                    pass
+            try:
+                resp = await client.get(f"https://{sub}")
+                if resp.status_code != 404:
+                    continue
+                # Détection heuristique : URL finale pointe vers un service tiers connu
+                url_str = str(resp.url)
+                matched = next(
+                    (sig for sig in TAKEOVER_SIGNATURES if sig in url_str),
+                    None,
+                )
+                if matched:
+                    findings.append(FindingData(
+                        severity="high",
+                        title=f"Potentiel subdomain takeover : {sub}",
+                        description=f"Le sous-domaine répond avec un 404 d'un service tiers ({matched}).",
+                        remediation=f"Supprimer le CNAME de {sub} ou réclamer la ressource sur le service.",
+                    ))
+            except Exception:
+                pass

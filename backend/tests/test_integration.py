@@ -112,6 +112,7 @@ def _ssl_mock_context():
         protocol="TLSv1.3",
         cipher="TLS_AES_256_GCM_SHA384",
         verified=True,
+        sans=["integration-test.com", "www.integration-test.com"],
     )
     return cert_info
 

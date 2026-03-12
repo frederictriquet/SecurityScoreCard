@@ -163,7 +163,7 @@ class TestFetchSubdomains:
 
 class TestCheckTakeover:
     async def test_takeover_detected(self):
-        """Le code itère sur chaque signature et fait une requête par signature × subdomain."""
+        """Un sous-domaine qui redirige vers un service tiers en 404 → un seul finding."""
         findings = []
         with patch("httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
@@ -177,11 +177,10 @@ class TestCheckTakeover:
 
             await _check_takeover({"dangling.example.com"}, findings)
 
-        # Chaque itération de la boucle interne (11 signatures) produit un finding
-        # car any(sig in url) est toujours vrai quand l'URL contient github.io
-        assert len(findings) >= 1
-        assert all(f.severity == "high" for f in findings)
-        assert all("takeover" in f.title.lower() for f in findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "takeover" in findings[0].title.lower()
+        assert "github.io" in findings[0].description
 
     async def test_no_takeover_200_response(self):
         findings = []
@@ -230,7 +229,6 @@ class TestCheckTakeover:
         """Le code limite à 30 subdomains × len(TAKEOVER_SIGNATURES) requêtes."""
         findings = []
         subs = {f"sub{i}.example.com" for i in range(50)}
-        num_sigs = len(TAKEOVER_SIGNATURES)
 
         with patch("httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
@@ -243,8 +241,8 @@ class TestCheckTakeover:
             mock_client.get = AsyncMock(return_value=mock_resp)
 
             await _check_takeover(subs, findings)
-            # 30 subdomains × num_sigs iterations
-            assert mock_client.get.call_count <= 30 * num_sigs
+            # 50 sous-domaines mais limité à 30, 1 requête par sous-domaine
+            assert mock_client.get.call_count == 30
 
 
 # ===================================================================

@@ -49,6 +49,9 @@ class FakeDnsAnswer:
     def __len__(self):
         return len(self._records)
 
+    def __getitem__(self, index):
+        return self._records[index]
+
 
 class FakeTxtRecord:
     def __init__(self, text: str):
@@ -89,11 +92,14 @@ def make_cert_info(
     cipher="TLS_AES_256_GCM_SHA384",
     verified=True,
     is_wildcard=False,
+    sans=None,
 ):
     from datetime import datetime, timezone, timedelta
 
     if not_after is None:
         not_after = datetime.now(timezone.utc) + timedelta(days=90)
+    if sans is None:
+        sans = ["example.com", "www.example.com"]
     return {
         "not_after": not_after,
         "issuer_cn": issuer_cn,
@@ -105,4 +111,5 @@ def make_cert_info(
         "cipher": cipher,
         "verified": verified,
         "is_wildcard": is_wildcard,
+        "sans": sans,
     }

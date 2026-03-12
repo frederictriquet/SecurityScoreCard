@@ -428,6 +428,257 @@ class TestSpfLookups:
 # ===================================================================
 
 
+# ===================================================================
+# TLS-RPT checks
+# ===================================================================
+
+
+class TestTlsRpt:
+    async def test_tls_rpt_present(self, scanner, resolver):
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeTxtRecord('"v=TLSRPTv1; rua=mailto:tls@example.com"')
+        ]))
+        findings = []
+        await scanner._check_tls_rpt("example.com", resolver, findings)
+        assert len(findings) == 0
+
+    async def test_tls_rpt_missing_no_record(self, scanner, resolver):
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeTxtRecord('"some-other-record"')
+        ]))
+        findings = []
+        await scanner._check_tls_rpt("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "low"
+        assert "TLS-RPT" in findings[0].title
+
+    async def test_tls_rpt_exception(self, scanner, resolver):
+        resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
+        findings = []
+        await scanner._check_tls_rpt("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "low"
+
+
+# ===================================================================
+# BIMI checks
+# ===================================================================
+
+
+class TestBimi:
+    async def test_bimi_present(self, scanner, resolver):
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeTxtRecord('"v=BIMI1; l=https://example.com/logo.svg"')
+        ]))
+        findings = []
+        await scanner._check_bimi("example.com", resolver, findings)
+        assert len(findings) == 0
+
+    async def test_bimi_missing(self, scanner, resolver):
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeTxtRecord('"not-bimi"')
+        ]))
+        findings = []
+        await scanner._check_bimi("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "BIMI" in findings[0].title
+
+    async def test_bimi_exception(self, scanner, resolver):
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
+        findings = []
+        await scanner._check_bimi("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert "BIMI" in findings[0].title
+
+
+# ===================================================================
+# AXFR (zone transfer) checks
+# ===================================================================
+
+
+class FakeNsRecord:
+    def __init__(self, target: str):
+        self.target = target
+
+
+class FakeARecord:
+    """Simule un record A pour str(record) → IP."""
+    def __init__(self, ip: str):
+        self._ip = ip
+
+    def __str__(self):
+        return self._ip
+
+
+class TestAxfr:
+    async def test_axfr_no_ns_records(self, scanner, resolver):
+        """Pas de NS → pas de vérification AXFR."""
+        resolver.resolve = AsyncMock(side_effect=Exception("no NS"))
+        findings = []
+        await scanner._check_axfr("example.com", resolver, findings)
+        assert len(findings) == 0
+
+    async def test_axfr_possible(self, scanner, resolver):
+        """Un NS autorise le transfert de zone → finding critical."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com.")]
+            raise Exception("nope")
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        with patch("app.scanners.dns._try_axfr", return_value=True):
+            await scanner._check_axfr("example.com", resolver, findings)
+
+        assert len(findings) == 1
+        assert findings[0].severity == "critical"
+        assert "AXFR" in findings[0].title
+
+    async def test_axfr_not_possible(self, scanner, resolver):
+        """Aucun NS n'autorise le transfert → pas de finding."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com.")]
+            raise Exception("nope")
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        with patch("app.scanners.dns._try_axfr", return_value=False):
+            await scanner._check_axfr("example.com", resolver, findings)
+
+        assert len(findings) == 0
+
+    async def test_axfr_exception_on_try(self, scanner, resolver):
+        """Exception pendant le test AXFR → silencieux, continue."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
+            raise Exception("nope")
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        with patch("app.scanners.dns._try_axfr", side_effect=Exception("connection refused")):
+            await scanner._check_axfr("example.com", resolver, findings)
+
+        assert len(findings) == 0
+
+    def test_try_axfr_returns_false_on_error(self):
+        """_try_axfr retourne False si le transfert échoue."""
+        from app.scanners.dns import _try_axfr
+        with patch("app.scanners.dns.dns.query.xfr", side_effect=Exception("refused")):
+            assert _try_axfr("ns.example.com", "example.com") is False
+
+
+# ===================================================================
+# Wildcard DNS checks
+# ===================================================================
+
+
+class TestWildcard:
+    async def test_wildcard_detected(self, scanner, resolver):
+        """Un sous-domaine aléatoire résout → wildcard détecté."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeTxtRecord("1.2.3.4")
+        ]))
+        findings = []
+        await scanner._check_wildcard("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "Wildcard" in findings[0].title
+
+    async def test_no_wildcard(self, scanner, resolver):
+        """Le sous-domaine aléatoire ne résout pas → pas de wildcard."""
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
+        findings = []
+        await scanner._check_wildcard("example.com", resolver, findings)
+        assert len(findings) == 0
+
+
+# ===================================================================
+# NS Redundancy checks
+# ===================================================================
+
+
+class TestNsRedundancy:
+    async def test_single_ns(self, scanner, resolver):
+        """Un seul NS → finding medium."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com.")]
+            raise Exception("no A")
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        await scanner._check_ns_redundancy("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "1 serveur" in findings[0].title
+
+    async def test_two_ns_different_networks(self, scanner, resolver):
+        """2 NS sur des /24 différents → pas de finding."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
+            if rdtype == "A":
+                if "ns1" in name:
+                    return FakeDnsAnswer([FakeARecord("1.2.3.4")])
+                return FakeDnsAnswer([FakeARecord("5.6.7.8")])
+            raise Exception()
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        await scanner._check_ns_redundancy("example.com", resolver, findings)
+        # Pas de finding car les réseaux /24 sont différents
+        ns_findings = [f for f in findings if "NS" in f.title or "serveur" in f.title.lower()]
+        assert len(ns_findings) == 0
+
+    async def test_two_ns_same_network(self, scanner, resolver):
+        """2 NS sur le même /24 → finding medium."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
+            if rdtype == "A":
+                if "ns1" in name:
+                    return FakeDnsAnswer([FakeARecord("10.0.1.1")])
+                return FakeDnsAnswer([FakeARecord("10.0.1.2")])
+            raise Exception()
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        await scanner._check_ns_redundancy("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert "même réseau" in findings[0].title.lower() or "même sous-réseau" in findings[0].description.lower()
+
+    async def test_ns_resolve_fails(self, scanner, resolver):
+        """Impossible de résoudre NS → pas de finding, pas de crash."""
+        resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
+        findings = []
+        await scanner._check_ns_redundancy("example.com", resolver, findings)
+        assert len(findings) == 0
+
+    async def test_ns_a_record_fails_gracefully(self, scanner, resolver):
+        """NS existent mais leurs A records ne résolvent pas → pas de finding réseau."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "NS":
+                return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
+            if rdtype == "A":
+                raise Exception("no A record")
+            raise Exception()
+
+        resolver.resolve = resolve_side_effect
+        findings = []
+        await scanner._check_ns_redundancy("example.com", resolver, findings)
+        # Pas de finding "même réseau" car on n'a pas pu résoudre les IPs
+        network_findings = [f for f in findings if "réseau" in f.title.lower() or "réseau" in f.description.lower()]
+        assert len(network_findings) == 0
+
+
+# ===================================================================
+# Full scan integration
+# ===================================================================
+
+
 class TestDnsFullScan:
     async def test_full_scan_returns_scan_result(self, scanner):
         """Vérifie que scan() retourne un ScanResult même si tout échoue."""

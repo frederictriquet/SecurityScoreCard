@@ -14,6 +14,8 @@ from app.scanners.tls import (
     _check_self_signed,
     _check_key_size,
     _check_sig_algorithm,
+    _check_wildcard_cert,
+    _check_san_coverage,
     _fetch_cert_sync,
     _parse_cert_der,
     _get_cert_info,
@@ -322,7 +324,7 @@ class TestTlsFullScan:
 
     async def test_healthy_cert_returns_100(self, scanner):
         with patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock:
-            mock.return_value = make_cert_info()
+            mock.return_value = make_cert_info(sans=["healthy.example.com", "www.healthy.example.com"])
             result = await scanner.scan("healthy.example.com")
             assert result.score == 100
             assert len(result.findings) == 0
@@ -334,6 +336,7 @@ class TestTlsFullScan:
                 issuer_cn="self.example.com",
                 subject_cn="self.example.com",  # self-signed → critical
                 sig_algo="sha1WithRSA",  # sha1 → high
+                sans=["bad.example.com"],  # domaine couvert pour éviter finding SAN
             )
             result = await scanner.scan("bad.example.com")
             # critical(-30) + critical(-30) + high(-20) = 100 - 80 = 20
@@ -779,3 +782,93 @@ class TestGetCertInfo:
         with patch("app.scanners.tls._fetch_cert_sync", side_effect=ConnectionRefusedError("nope")):
             with pytest.raises(ConnectionRefusedError):
                 await _get_cert_info("down.example.com")
+
+
+# ===================================================================
+# _check_wildcard_cert — détection de certificats wildcard
+# ===================================================================
+
+
+class TestCheckWildcardCert:
+    def test_no_wildcard(self):
+        """SANs sans wildcard → pas de finding."""
+        findings = []
+        _check_wildcard_cert({"sans": ["example.com", "www.example.com"]}, findings)
+        assert len(findings) == 0
+
+    def test_no_sans(self):
+        """Pas de SANs → pas de finding."""
+        findings = []
+        _check_wildcard_cert({"sans": []}, findings)
+        assert len(findings) == 0
+
+    def test_normal_wildcard_medium(self):
+        """Wildcard standard *.example.com → finding medium."""
+        findings = []
+        _check_wildcard_cert({"sans": ["*.example.com", "example.com"]}, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "wildcard" in findings[0].title.lower()
+
+    def test_overly_broad_wildcard_high(self):
+        """Wildcard sur TLD *.com → finding high (excessivement large)."""
+        findings = []
+        _check_wildcard_cert({"sans": ["*.com"]}, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "large" in findings[0].title.lower() or "excessivement" in findings[0].title.lower()
+
+    def test_multiple_wildcards(self):
+        """Plusieurs wildcards → un seul finding medium."""
+        findings = []
+        _check_wildcard_cert({"sans": ["*.example.com", "*.api.example.com"]}, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+
+    def test_sans_key_missing(self):
+        """Pas de clé 'sans' → pas de crash."""
+        findings = []
+        _check_wildcard_cert({}, findings)
+        assert len(findings) == 0
+
+
+# ===================================================================
+# _check_san_coverage — domaine couvert par les SANs
+# ===================================================================
+
+
+class TestCheckSanCoverage:
+    def test_domain_covered_by_exact_match(self):
+        """Le domaine est dans les SANs → pas de finding."""
+        findings = []
+        _check_san_coverage({"sans": ["example.com", "www.example.com"]}, "example.com", findings)
+        assert len(findings) == 0
+
+    def test_domain_covered_by_wildcard(self):
+        """Le domaine est couvert par un wildcard → pas de finding."""
+        findings = []
+        _check_san_coverage({"sans": ["*.example.com"]}, "www.example.com", findings)
+        assert len(findings) == 0
+
+    def test_domain_not_covered(self):
+        """Le domaine n'est pas couvert → finding medium."""
+        findings = []
+        _check_san_coverage({"sans": ["other.com", "www.other.com"]}, "example.com", findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "example.com" in findings[0].title
+
+    def test_no_sans_at_all(self):
+        """Pas de SANs → finding low."""
+        findings = []
+        _check_san_coverage({"sans": []}, "example.com", findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "low"
+        assert "SAN" in findings[0].title
+
+    def test_sans_key_missing(self):
+        """Pas de clé 'sans' → finding low (traité comme vide)."""
+        findings = []
+        _check_san_coverage({}, "example.com", findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "low"
