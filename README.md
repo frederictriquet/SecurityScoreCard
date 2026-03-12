@@ -1,56 +1,77 @@
 # SecurityScoreCard
 
-Outil d'audit passif de sécurité pour domaines. Lance des scans non-intrusifs et affiche un score A-F avec le détail des findings.
+Passive security audit tool for web domains. Runs non-intrusive scans and displays an A–F score with detailed findings.
 
-## Modules de scan
+## Scan Modules
 
-| Module | Sources | Vérifications |
-|--------|---------|---------------|
-| DNS Health | dnspython | SPF, DMARC, DKIM, DNSSEC, MX |
-| TLS / SSL | ssl stdlib | Expiration, version, cipher suites, auto-signé |
-| HTTP Headers | httpx | HSTS, CSP, X-Frame-Options, X-Content-Type, Referrer-Policy |
-| IP Réputation | AbuseIPDB / Spamhaus | Score d'abus, listes noires |
-| Sous-domaines | crt.sh (CT logs) | Enumération, détection takeover |
-| Fuites (HIBP) | HaveIBeenPwned | Breaches associées au domaine |
+| Module | Checks | Tools |
+|--------|--------|-------|
+| **DNS Health** | SPF, DMARC, DKIM, DNSSEC, MX, CAA, MTA-STS, DANE, TLS-RPT, BIMI, AXFR, wildcard, NS redundancy | `dnspython` |
+| **TLS / SSL** | Certificate validity, chain, TLS versions, ciphers, key size, signature algo, OCSP, CT, vulnerabilities (Heartbleed, POODLE, ROBOT, CRIME…), wildcard cert, SAN coverage | `ssl` stdlib, `cryptography`, `testssl.sh` |
+| **HTTP Headers** | HSTS, CSP, X-Frame-Options, X-Content-Type, Referrer-Policy, Permissions-Policy, COOP/COEP/CORP, Cache-Control, X-XSS-Protection | `httpx` |
+| **Cookies** | Secure, HttpOnly, SameSite, `__Secure-`/`__Host-` prefixes, Max-Age, Domain scope | `httpx` |
+| **Web Content** | SRI, mixed content, insecure forms, CORS, dangerous HTTP methods, HTML comments, exposed files (.git, .env, backups…), robots.txt, error pages, leaky headers | `httpx`, HTML parser |
+| **IP Reputation** | AbuseIPDB, Spamhaus DNSBL | API / DNS |
+| **Subdomains** | Certificate Transparency (crt.sh), takeover detection | HTTPS / DNS |
+| **Leaks (HIBP)** | Data breaches associated with the domain | HaveIBeenPwned API |
+| **Ports & WHOIS** | Top 100 ports, dangerous port detection, service identification, WHOIS age/registrar | `nmap`, `python-whois` |
 
 ## Stack
 
-- **Backend** : FastAPI + SQLAlchemy async + aiosqlite (SQLite)
-- **Frontend** : SvelteKit (static build) + nginx
-- **Infra** : Docker Compose
+- **Backend**: Python 3.12 — FastAPI + SQLAlchemy async + aiosqlite (SQLite)
+- **Frontend**: SvelteKit 5 (static build via `adapter-static`) + nginx
+- **Infra**: Docker Compose (2 services: backend + frontend)
+- **CI/CD**: GitHub Actions → GHCR
 
----
-
-## Déploiement VPS
-
-### Prérequis
-
-- Docker + Docker Compose installés
-- Port 80 ouvert
+## Quick Start
 
 ```bash
-# Sur Debian/Ubuntu
+git clone https://github.com/your-user/SecurityScoreCard.git
+cd SecurityScoreCard
+
+# (Optional) Configure environment
+cp .env.example .env
+# Add ABUSEIPDB_API_KEY if you have one
+
+# Build & start
+./dev.sh up
+```
+
+The app is available at `http://localhost`.
+
+### dev.sh commands
+
+| Command | Description |
+|---------|-------------|
+| `./dev.sh up` | Build & start containers |
+| `./dev.sh down` | Stop & remove containers |
+| `./dev.sh build` | Rebuild images only |
+| `./dev.sh restart` | Restart containers |
+| `./dev.sh logs` | Tail container logs |
+| `./dev.sh ps` | Container status |
+
+## VPS Deployment
+
+### Prerequisites
+
+- Docker + Docker Compose
+- Port 80 open
+
+```bash
+# Debian/Ubuntu
 apt update && apt install -y docker.io docker-compose-plugin
 ```
 
-### Installation
+### Install & run
 
 ```bash
-git clone <url-du-repo> /opt/securityscorecard
+git clone <repo-url> /opt/securityscorecard
 cd /opt/securityscorecard
-
-# Configurer les variables d'environnement
 cp .env.example .env
-# Optionnel : ajouter une clé AbuseIPDB pour le scanner de réputation
-# nano .env
-
-# Lancer
 docker compose up -d --build
 ```
 
-L'application est disponible sur `http://<ip-du-vps>`.
-
-### Mise à jour
+### Update
 
 ```bash
 cd /opt/securityscorecard
@@ -58,23 +79,7 @@ git pull
 docker compose up -d --build
 ```
 
-### Logs
-
-```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-```
-
-### Arrêt
-
-```bash
-docker compose down
-# Les données SQLite sont préservées dans le volume Docker db_data
-```
-
----
-
-## Développement local
+## Local Development
 
 ### Backend
 
@@ -82,9 +87,7 @@ docker compose down
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-mkdir -p /data
-uvicorn app.main:app --reload
-# API disponible sur http://localhost:8000
+uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
 ### Frontend
@@ -92,14 +95,46 @@ uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm install
-npm run dev
-# UI disponible sur http://localhost:5173
+npm run dev   # http://localhost:5173
 ```
 
-### Variables d'environnement
+## Environment Variables
 
-| Variable | Description | Requis |
-|----------|-------------|--------|
-| `ABUSEIPDB_API_KEY` | Clé API AbuseIPDB (free tier) | Non — fallback Spamhaus si absent |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `ABUSEIPDB_API_KEY` | AbuseIPDB API key (free tier) | No — falls back to Spamhaus DNS |
 
-Sans clé AbuseIPDB, le scanner de réputation utilise Spamhaus via DNS (gratuit, pas d'inscription requise).
+## Architecture
+
+```
+backend/
+  app/
+    main.py            FastAPI entry point
+    models.py          SQLAlchemy models (Scan, Finding)
+    schemas.py         Pydantic schemas
+    database.py        Async SQLite config
+    limiter.py         Rate limiting (slowapi)
+    routers/           API routes
+    scanners/
+      base.py          Abstract BaseScanner
+      orchestrator.py  Runs all scanners, computes score
+      dns.py           13 DNS checks
+      tls.py           18 TLS/SSL checks
+      headers.py       Headers, cookies, web content, exposed files
+      reputation.py    AbuseIPDB / Spamhaus
+      subdomains.py    crt.sh, takeover detection
+      leaks.py         HaveIBeenPwned
+      ports.py         nmap port scan + WHOIS
+frontend/
+  src/
+    routes/            SvelteKit pages
+    lib/
+      api.js           API client
+      components/      Svelte components (ScoreGauge, ModuleCard, FindingRow…)
+docker-compose.yml     2 services: backend + frontend
+dev.sh                 Helper script
+```
+
+## License
+
+MIT
