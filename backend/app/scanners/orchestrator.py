@@ -12,6 +12,7 @@ from app.scanners.headers import HeadersScanner
 from app.scanners.reputation import ReputationScanner
 from app.scanners.subdomains import SubdomainsScanner
 from app.scanners.leaks import LeaksScanner
+from app.scanners.ports import PortsScanner
 
 SCANNERS: list[BaseScanner] = [
     DnsScanner(),
@@ -20,6 +21,7 @@ SCANNERS: list[BaseScanner] = [
     ReputationScanner(),
     SubdomainsScanner(),
     LeaksScanner(),
+    PortsScanner(),
 ]
 
 GRADES = [(90, "A"), (80, "B"), (70, "C"), (60, "D"), (0, "F")]

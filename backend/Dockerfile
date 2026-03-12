@@ -3,7 +3,7 @@ FROM python:3.14-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl git openssl procps bsdmainutils dnsutils \
+    curl git openssl procps bsdmainutils dnsutils nmap \
     && rm -rf /var/lib/apt/lists/*
 
 # testssl.sh — outil standalone pour l'analyse TLS avancée

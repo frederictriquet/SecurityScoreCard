@@ -161,10 +161,10 @@ Objectif : scan passif le plus exhaustif possible, sans API payante, avec des ou
 
 | # | Check | Sévérité | Status | Notes |
 |---|-------|----------|--------|-------|
-| 10.1 | Ports ouverts courants (top 100) | medium | [ ] | `tool:nmap` — `nmap -sT --top-ports 100 -T4` |
-| 10.2 | Services identifiés sur ports ouverts | medium | [ ] | `tool:nmap` — `-sV` (version detection) |
-| 10.3 | Ports dangereux exposés (3389, 445, 1433, 3306) | high | [ ] | `tool:nmap` |
-| 10.4 | WHOIS — date d'enregistrement, registrar | info | [ ] | `python-whois` (déjà dans requirements) |
+| 10.1 | Ports ouverts courants (top 100) | medium | [x] | `nmap -sT --top-ports 100 -T4 --open` |
+| 10.2 | Services identifiés sur ports ouverts | medium | [x] | `nmap -sV --version-light` — parsing XML |
+| 10.3 | Ports dangereux exposés (3389, 445, 1433, 3306) | high | [x] | 14 ports dangereux détectés (FTP, Telnet, SMB, RDP, DB…) |
+| 10.4 | WHOIS — date d'enregistrement, registrar | info | [x] | `python-whois` — alerte si domaine < 30 jours |
 | 10.5 | Géolocalisation IP | info | [ ] | API gratuite (ip-api.com) |
 
 > **`nmap`** : scanner réseau. Installation dans l'image Docker : `apt-get install -y nmap`. Exécution en mode non-privilégié (`-sT` connect scan). Parsing de la sortie XML (`-oX`).
@@ -237,7 +237,7 @@ Checks faisables uniquement avec Python + `dnspython` + `httpx` + `ssl` :
 
 ### Phase 4 — Intégration de nmap
 
-- [ ] 10.1–10.3 Scan de ports
+- [x] 10.1–10.3 Scan de ports (top 100, détection de version, ports dangereux)
 
 ### Phase 5 — APIs gratuites additionnelles
 
