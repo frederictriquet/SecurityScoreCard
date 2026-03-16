@@ -6,6 +6,7 @@
   import ScoreGauge from '$lib/components/ScoreGauge.svelte';
   import ModuleCard from '$lib/components/ModuleCard.svelte';
   import ScanStatus from '$lib/components/ScanStatus.svelte';
+  import { downloadPdf } from '$lib/exportPdf.js';
 
   let scan = null;
   let error = '';
@@ -162,6 +163,12 @@
         <div class="legend-row"><span class="dot" style="background:#f97316"></span> D — 60-69</div>
         <div class="legend-row"><span class="dot" style="background:#ef4444"></span> F — 0-59</div>
       </div>
+      {#if scan.status === 'completed'}
+        <button class="export-btn" on:click={() => downloadPdf(scan)} title="Download PDF report">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export PDF
+        </button>
+      {/if}
     </div>
 
     <div class="modules-toolbar">
@@ -283,6 +290,23 @@
     padding: 28px 32px;
     margin-bottom: 32px;
   }
+  .export-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    background: #1e3a5f;
+    color: #93c5fd;
+    border: 1px solid #2563eb44;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .export-btn:hover { background: #1e4d8f; color: #bfdbfe; }
   .score-legend { display: flex; flex-direction: column; gap: 6px; }
   .legend-row {
     display: flex;
