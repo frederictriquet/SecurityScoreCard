@@ -20,6 +20,10 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    ignore:
+      # pydantic-core n'a pas de wheels pour Python 3.13+
+      - dependency-name: "python"
+        versions: [">=3.13"]
 
   - package-ecosystem: "docker"
     directory: "/frontend"
