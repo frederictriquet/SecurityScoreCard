@@ -8,7 +8,11 @@ export async function createScan(domain) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Error ${res.status}`);
+    // Pydantic renvoie detail comme tableau [{msg, ...}] sur les 422
+    const detail = Array.isArray(err.detail)
+      ? err.detail.map(e => e.msg).join(', ')
+      : err.detail;
+    throw new Error(detail || `Erreur ${res.status}`);
   }
   return res.json();
 }
