@@ -15,7 +15,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "jspdf": "^4.2.0",
+    "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7"
   }
 }
