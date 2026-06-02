@@ -10,7 +10,7 @@ class ScanCreate(BaseModel):
     @classmethod
     def validate_domain(cls, v: str) -> str:
         v = v.strip().lower().removeprefix("https://").removeprefix("http://")
-        v = v.split("/")[0].split("?")[0].split("#")[0]  # strip path, query, fragment
+        v = v.removesuffix("/")  # tolère un slash final mais rejette un vrai chemin
         pattern = r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
         if not re.match(pattern, v):
             raise ValueError("Domaine invalide")
