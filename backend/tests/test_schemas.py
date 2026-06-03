@@ -54,6 +54,37 @@ class TestScanCreateValidDomains:
         assert scan.domain == "example.com"
 
 
+class TestScanCreateIdn:
+    """Conversion Punycode des domaines internationalisés / homographes.
+
+    Sans cette conversion, un homographe Unicode collé tel quel par une victime
+    serait rejeté avant d'atteindre le scanner homographe (cf. ticket 1.14).
+    """
+
+    def test_unicode_homograph_converted_to_punycode(self):
+        # « pаypal.com » avec un « а » cyrillique : doit être accepté et encodé.
+        scan = ScanCreate(domain="pаypal.com")
+        assert scan.domain == "xn--pypal-4ve.com"
+
+    def test_legit_idn_converted_to_punycode(self):
+        # IDN légitime (CJK) : accepté et encodé en Punycode.
+        scan = ScanCreate(domain="中国.com")
+        assert scan.domain == "xn--fiqs8s.com"
+
+    def test_accented_latin_converted(self):
+        scan = ScanCreate(domain="café.com")
+        assert scan.domain == "xn--caf-dma.com"
+
+    def test_unicode_with_prefix_and_slash(self):
+        scan = ScanCreate(domain="https://pаypal.com/")
+        assert scan.domain == "xn--pypal-4ve.com"
+
+    def test_ascii_domain_unchanged_by_idna(self):
+        # La conversion idna ne doit pas altérer un domaine ASCII pur.
+        scan = ScanCreate(domain="example.com")
+        assert scan.domain == "example.com"
+
+
 class TestScanCreateInvalidDomains:
     @pytest.mark.parametrize("domain", [
         "",

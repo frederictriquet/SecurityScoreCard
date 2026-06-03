@@ -11,6 +11,16 @@ class ScanCreate(BaseModel):
     def validate_domain(cls, v: str) -> str:
         v = v.strip().lower().removeprefix("https://").removeprefix("http://")
         v = v.removesuffix("/")  # tolère un slash final mais rejette un vrai chemin
+        # Convertit les domaines internationalisés (Unicode) en Punycode (xn--).
+        # Indispensable pour que la victime puisse coller un domaine homographe
+        # tel quel (« pаypal.com » avec un « а » cyrillique) : sans cette
+        # conversion, la regex ASCII ci-dessous le rejetterait avant que le
+        # scanner homographe ne puisse l'analyser. Les domaines ASCII purs sont
+        # renvoyés inchangés par le codec idna.
+        try:
+            v = v.encode("idna").decode("ascii")
+        except (UnicodeError, ValueError):
+            raise ValueError("Domaine invalide")
         pattern = r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
         if not re.match(pattern, v):
             raise ValueError("Domaine invalide")

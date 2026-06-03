@@ -10,8 +10,25 @@ import dns.asyncresolver
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 
 
+# Préfixes de noms Unicode qui qualifient un caractère sans désigner son
+# système d'écriture (ex. « MODIFIER LETTER SMALL H », « FULLWIDTH LATIN … »).
+# On les saute pour atteindre le vrai nom de script et éviter de fabriquer de
+# faux « scripts » (MODIFIER, FULLWIDTH…) qui déclencheraient à tort une alerte
+# « scripts mélangés ». Heuristique : voir _alpha_scripts.
+_SCRIPT_NAME_QUALIFIERS = {
+    "MODIFIER", "COMBINING", "FULLWIDTH", "HALFWIDTH", "MATHEMATICAL",
+    "CIRCLED", "PARENTHESIZED", "SUPERSCRIPT", "SUBSCRIPT", "SMALL",
+}
+
+
 # Caractères non latins dont l'apparence imite une lettre ASCII latine.
 # Sert à détecter les attaques homographes (IDN spoofing).
+# NOTE : liste blanche volontairement partielle (cyrillique/grec, les scripts
+# les plus courants pour ce type d'attaque). D'autres familles d'homoglyphes
+# (arménien, latin pleine-chasse, alphanumériques mathématiques…) ne sont pas
+# énumérées et ne déclencheront donc PAS la branche « confusable » (medium) :
+# elles retombent en « info ». Le cas critique du mélange de scripts reste
+# couvert indépendamment de cette liste (branche « scripts mélangés », high).
 _CONFUSABLE_CHARS = {
     # Cyrillique minuscule
     "а", "е", "о", "р", "с", "у", "х", "ѕ", "і", "ј", "һ", "ԁ", "ӏ", "ԛ", "ԝ",
@@ -25,7 +42,15 @@ _CONFUSABLE_CHARS = {
 
 
 def _alpha_scripts(text: str) -> set[str]:
-    """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques."""
+    """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques.
+
+    Heuristique (et non la propriété Unicode « Script ») : on déduit le script
+    du premier mot du nom Unicode du caractère (« LATIN SMALL LETTER A » →
+    LATIN). Les préfixes qualificatifs sans valeur de script (MODIFIER,
+    FULLWIDTH…) sont sautés pour éviter des faux positifs « scripts mélangés ».
+    Suffisant pour distinguer latin/cyrillique/grec/CJK dans un nom de domaine,
+    mais à ne pas confondre avec une vraie détection de script.
+    """
     scripts: set[str] = set()
     for ch in text:
         if not ch.isalpha():
@@ -34,7 +59,12 @@ def _alpha_scripts(text: str) -> set[str]:
             name = unicodedata.name(ch)
         except ValueError:
             continue
-        scripts.add(name.split(" ")[0])
+        # Saute les préfixes qualificatifs pour atteindre le vrai nom de script.
+        words = name.split(" ")
+        idx = 0
+        while idx < len(words) - 1 and words[idx] in _SCRIPT_NAME_QUALIFIERS:
+            idx += 1
+        scripts.add(words[idx])
     return scripts
 
 
@@ -358,8 +388,17 @@ class DnsScanner(BaseScanner):
         """Détection passive d'un domaine homographe (IDN spoofing).
 
         Analyse purement locale du nom de domaine : aucune requête réseau.
-        Le validateur n'accepte que de l'ASCII, donc les domaines
-        internationalisés arrivent encodés en Punycode (labels `xn--`).
+        Le validateur (`schemas.validate_domain`) convertit l'input en Punycode
+        via `.encode("idna")`, donc les domaines internationalisés — y compris
+        ceux qu'une victime colle sous leur forme Unicode visible — arrivent ici
+        encodés en labels `xn--`, prêts à être décodés et analysés.
+
+        Limites connues : la détection « confusables » repose sur
+        `_CONFUSABLE_CHARS`, une liste blanche partielle (cyrillique/grec). Des
+        familles entières d'homoglyphes (arménien, fullwidth, alphanumériques
+        mathématiques…) n'y figurent pas et retombent en « info ». Le cas le plus
+        dangereux (mélange latin + autre script, ex. « pаypal ») reste lui couvert
+        par la branche « scripts mélangés » indépendamment de cette liste.
         """
         idn_labels: list[tuple[str, str]] = []  # (label ASCII, label Unicode)
         for label in domain.split("."):

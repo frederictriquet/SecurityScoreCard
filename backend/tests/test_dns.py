@@ -756,3 +756,40 @@ class TestIdnHomograph:
         findings = []
         await scanner._check_idn_homograph(f"{_puny('pаypal')}.fr", resolver, findings)
         assert len(findings) == 1
+
+    async def test_end_to_end_unicode_homograph(self, scanner, resolver):
+        """Bout en bout : un homographe Unicode collé tel quel par une victime
+        traverse le validateur (→ Punycode) puis déclenche le finding « high ».
+
+        C'est le cas d'usage réel : l'utilisateur n'entre PAS la forme xn--, il
+        colle « pаypal.com » (« а » cyrillique). Sans la conversion idna du
+        validateur, l'entrée serait rejetée avant d'atteindre ce scanner.
+        """
+        from app.schemas import ScanCreate
+
+        # 1. Le validateur accepte l'Unicode visible et le convertit en Punycode.
+        domain = ScanCreate(domain="pаypal.com").domain
+        assert domain.startswith("xn--")  # bien passé en Punycode
+
+        # 2. Le scanner reçoit cette forme et détecte le mélange de scripts.
+        findings = []
+        await scanner._check_idn_homograph(domain, resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
+
+    async def test_end_to_end_scan_flags_homograph(self, scanner):
+        """Bout en bout via scan() : le domaine homographe converti par le
+        validateur ressort bien dans les findings de l'orchestrateur DNS."""
+        from app.schemas import ScanCreate
+
+        domain = ScanCreate(domain="pаypal.com").domain
+        with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
+            mock_instance = MockResolver.return_value
+            mock_instance.resolve = AsyncMock(side_effect=Exception("mocked"))
+            mock_instance.nameservers = ["8.8.8.8"]
+            result = await scanner.scan(domain)
+
+        homograph = [f for f in result.findings if "homographe" in f.title.lower()]
+        assert len(homograph) == 1
+        assert homograph[0].severity == "high"
