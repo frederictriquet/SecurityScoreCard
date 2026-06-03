@@ -16,7 +16,7 @@ services:
     build: ./frontend
     image: ${FRONTEND_IMAGE:-securityscorecard-frontend:local}
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       backend:
         condition: service_healthy
