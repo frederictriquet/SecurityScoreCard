@@ -27,7 +27,7 @@ Objectif : scan passif le plus exhaustif possible, sans API payante, avec des ou
 | 1.11 | Zone Transfer (AXFR) — test de transfert de zone | critical | [x] | `dnspython` — tenter AXFR sur les NS |
 | 1.12 | Wildcard DNS — détection d'enregistrements wildcard | medium | [x] | Résoudre un sous-domaine aléatoire |
 | 1.13 | NS redundancy — au moins 2 NS sur des réseaux distincts | medium | [x] | `dnspython` |
-| 1.14 | IDN / Homograph — détection de domaine homographe | medium | [ ] | Décoder les labels `xn--` (`idna`), détecter le mixage de scripts (latin + cyrillique/grec) et les caractères confusables. Accepter les IDN légitimes en normalisant en punycode au lieu de rejeter. Voir aussi validation `schemas.py` (regex ASCII-only) |
+| 1.14 | IDN / Homograph — détection de domaine homographe | high | [x] | Analyse locale du Punycode : scripts mélangés / caractères confusables |
 
 ---
 

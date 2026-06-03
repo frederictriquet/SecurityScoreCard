@@ -1,11 +1,41 @@
 import asyncio
+import json
 import random
 import string
+import unicodedata
 
 import dns.resolver
 import dns.asyncresolver
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
+
+
+# Caractères non latins dont l'apparence imite une lettre ASCII latine.
+# Sert à détecter les attaques homographes (IDN spoofing).
+_CONFUSABLE_CHARS = {
+    # Cyrillique minuscule
+    "а", "е", "о", "р", "с", "у", "х", "ѕ", "і", "ј", "һ", "ԁ", "ӏ", "ԛ", "ԝ",
+    # Cyrillique majuscule
+    "А", "В", "Е", "К", "М", "Н", "О", "Р", "С", "Т", "У", "Х", "Ѕ", "І", "Ј",
+    # Grec minuscule
+    "ο", "α", "ν", "ρ", "ι", "κ", "υ",
+    # Grec majuscule
+    "Α", "Β", "Ε", "Ζ", "Η", "Ι", "Κ", "Μ", "Ν", "Ο", "Ρ", "Τ", "Υ", "Χ",
+}
+
+
+def _alpha_scripts(text: str) -> set[str]:
+    """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques."""
+    scripts: set[str] = set()
+    for ch in text:
+        if not ch.isalpha():
+            continue
+        try:
+            name = unicodedata.name(ch)
+        except ValueError:
+            continue
+        scripts.add(name.split(" ")[0])
+    return scripts
 
 
 class DnsScanner(BaseScanner):
@@ -32,6 +62,7 @@ class DnsScanner(BaseScanner):
             self._check_axfr(domain, resolver, findings),
             self._check_wildcard(domain, resolver, findings),
             self._check_ns_redundancy(domain, resolver, findings),
+            self._check_idn_homograph(domain, resolver, findings),
         )
 
         return ScanResult.from_findings(findings)
@@ -320,6 +351,72 @@ class DnsScanner(BaseScanner):
                     title="Serveurs NS sur le même réseau",
                     description=f"Les {len(ns_ips)} serveurs DNS sont sur le même sous-réseau /24. Une panne réseau les affecterait tous.",
                     remediation="Répartir les serveurs DNS sur des réseaux physiques différents.",
+                ))
+
+
+    async def _check_idn_homograph(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        """Détection passive d'un domaine homographe (IDN spoofing).
+
+        Analyse purement locale du nom de domaine : aucune requête réseau.
+        Le validateur n'accepte que de l'ASCII, donc les domaines
+        internationalisés arrivent encodés en Punycode (labels `xn--`).
+        """
+        idn_labels: list[tuple[str, str]] = []  # (label ASCII, label Unicode)
+        for label in domain.split("."):
+            if not label.startswith("xn--"):
+                continue
+            try:
+                unicode_label = label[4:].encode("ascii").decode("punycode")
+            except Exception:
+                continue
+            idn_labels.append((label, unicode_label))
+
+        if not idn_labels:
+            return  # Domaine ASCII pur : pas de risque homographe
+
+        for ascii_label, unicode_label in idn_labels:
+            scripts = _alpha_scripts(unicode_label)
+            alpha = [c for c in unicode_label if c.isalpha()]
+            raw = json.dumps({
+                "label": ascii_label,
+                "unicode": unicode_label,
+                "scripts": sorted(scripts),
+            })
+
+            if len(scripts) > 1:
+                findings.append(FindingData(
+                    severity="high",
+                    title="Domaine homographe : scripts mélangés",
+                    description=(
+                        f"Le label « {unicode_label} » ({ascii_label}) mélange plusieurs "
+                        f"systèmes d'écriture ({', '.join(sorted(scripts))}). C'est la "
+                        "signature d'une attaque homographe : des caractères d'apparence "
+                        "identique à des lettres latines imitent un domaine légitime."
+                    ),
+                    remediation="Vérifier l'authenticité du domaine et comparer avec la forme Punycode (xn--).",
+                    raw_data=raw,
+                ))
+            elif alpha and "LATIN" not in scripts and all(c in _CONFUSABLE_CHARS for c in alpha):
+                findings.append(FindingData(
+                    severity="medium",
+                    title="Domaine homographe potentiel (caractères confusables)",
+                    description=(
+                        f"Le label « {unicode_label} » ({ascii_label}) est entièrement composé "
+                        "de caractères non latins d'apparence identique à des lettres latines. "
+                        "Il peut usurper visuellement un domaine ASCII légitime."
+                    ),
+                    remediation="Vérifier l'authenticité du domaine et comparer avec la forme Punycode (xn--).",
+                    raw_data=raw,
+                ))
+            else:
+                findings.append(FindingData(
+                    severity="info",
+                    title="Domaine internationalisé (IDN)",
+                    description=(
+                        f"Le label « {unicode_label} » ({ascii_label}) utilise des caractères "
+                        "non ASCII (IDN). Aucun mélange de scripts suspect détecté."
+                    ),
+                    raw_data=raw,
                 ))
 
 
