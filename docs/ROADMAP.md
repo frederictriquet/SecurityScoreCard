@@ -32,5 +32,5 @@
 ## Phase 5 — Polish
 - [x] Gestion des erreurs (domaine invalide, timeout)
 - [x] Rate limiting basique
-- [ ] Favicon + titres de page (titres OK ; favicon.png manquant — référencé dans `app.html` mais absent de `static/`)
+- [x] Favicon + titres de page (titres OK ; favicon.png manquant — référencé dans `app.html` mais absent de `static/`)
 - [x] README déploiement VPS

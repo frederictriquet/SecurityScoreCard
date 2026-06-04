@@ -7,3 +7,6 @@ node_modules/
 .svelte-kit/
 build/
 dist/
+
+# Orchestrateur autonome (logs/findings locaux)
+.orchestrator/
