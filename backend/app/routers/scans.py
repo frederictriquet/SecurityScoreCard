@@ -24,6 +24,21 @@ async def create_scan(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
+    # Domaine homographe (IDN spoofing) techniquement valide : on NE lance PAS le
+    # scan tout de suite. Tant que l'utilisateur n'a pas confirmé explicitement,
+    # on renvoie une réponse dédiée expliquant le danger, la forme visible saisie
+    # et la forme Punycode réelle qui serait scannée. Aucun Scan n'est créé.
+    if body.homograph_explanation and not body.confirm:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "needs_confirmation": True,
+                "explanation": body.homograph_explanation,
+                "domain": body.visible_domain,
+                "punycode": body.domain,
+            },
+        )
+
     scan = Scan(domain=body.domain)
     db.add(scan)
     await db.commit()

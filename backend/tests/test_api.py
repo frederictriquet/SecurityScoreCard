@@ -158,6 +158,68 @@ class TestCreateScan:
 
 
 # ===================================================================
+# POST /api/scans — confirmation préalable d'un domaine homographe
+# ===================================================================
+
+
+class TestCreateScanHomographConfirmation:
+    """Un domaine homographe valide exige une confirmation explicite.
+
+    « pаypal.com » (« а » cyrillique) se convertit en Punycode valide et passerait
+    silencieusement la validation : on refuse de le scanner sans avertir, en
+    renvoyant une réponse « confirmation requise » qui explique le danger. Le scan
+    ne démarre qu'avec `confirm: true`. Les domaines non homographes (y compris les
+    IDN légitimes) continuent de scanner directement.
+    """
+
+    HOMOGRAPH = "pаypal.com"  # « а » cyrillique (U+0430)
+    HOMOGRAPH_PUNYCODE = "xn--pypal-4ve.com"
+
+    async def test_homograph_without_confirm_requires_confirmation(self, client):
+        with patch("app.routers.scans.run_scan", new_callable=AsyncMock) as mock_run:
+            resp = await client.post("/api/scans", json={"domain": self.HOMOGRAPH})
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["needs_confirmation"] is True
+        assert "homographe" in detail["explanation"].lower()
+        assert detail["domain"] == self.HOMOGRAPH
+        assert detail["punycode"] == self.HOMOGRAPH_PUNYCODE
+        # Aucun scan créé, aucune tâche de fond lancée.
+        mock_run.assert_not_called()
+        assert await _count_rows(Scan) == 0
+
+    async def test_homograph_with_confirm_creates_scan(self, client):
+        with patch("app.routers.scans.run_scan", new_callable=AsyncMock) as mock_run:
+            resp = await client.post(
+                "/api/scans", json={"domain": self.HOMOGRAPH, "confirm": True}
+            )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["domain"] == self.HOMOGRAPH_PUNYCODE
+        scan_id = data["id"]
+        mock_run.assert_called_once_with(scan_id, self.HOMOGRAPH_PUNYCODE)
+        assert await _count_rows(Scan) == 1
+
+    async def test_normal_domain_scans_without_confirmation(self, client):
+        with patch("app.routers.scans.run_scan", new_callable=AsyncMock) as mock_run:
+            resp = await client.post("/api/scans", json={"domain": "example.com"})
+        assert resp.status_code == 201
+        assert resp.json()["domain"] == "example.com"
+        mock_run.assert_called_once()
+        assert await _count_rows(Scan) == 1
+
+    async def test_legit_idn_scans_without_confirmation(self, client):
+        # IDN légitime (CJK, non confusable) : pas de signature homographe, le scan
+        # démarre directement sans étape de confirmation.
+        with patch("app.routers.scans.run_scan", new_callable=AsyncMock) as mock_run:
+            resp = await client.post("/api/scans", json={"domain": "中国.com"})
+        assert resp.status_code == 201
+        assert resp.json()["domain"] == "xn--fiqs8s.com"
+        mock_run.assert_called_once()
+        assert await _count_rows(Scan) == 1
+
+
+# ===================================================================
 # POST /api/scans — intégration E2E (vrai orchestrateur)
 # ===================================================================
 

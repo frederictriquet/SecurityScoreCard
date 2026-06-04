@@ -9,6 +9,7 @@
   let loading = false;
   let error = '';
   let deleteConfirm = null; // id du scan en attente de confirmation
+  let homographWarning = null; // { explanation, domain, punycode } si confirmation requise
 
   onMount(async () => {
     try {
@@ -18,18 +19,41 @@
     }
   });
 
-  async function handleSubmit() {
-    const d = domain.trim();
-    if (!d) return;
+  async function startScan(d, confirm = false) {
     loading = true;
     error = '';
     try {
-      const scan = await createScan(d);
-      goto(`/scan/${scan.id}`);
+      const result = await createScan(d, confirm);
+      if (result.needsConfirmation) {
+        // Domaine homographe : on n'enchaîne pas, on affiche l'avertissement.
+        homographWarning = result;
+        loading = false;
+        return;
+      }
+      goto(`/scan/${result.id}`);
     } catch (e) {
       error = e.message;
       loading = false;
     }
+  }
+
+  async function handleSubmit() {
+    const d = domain.trim();
+    if (!d) return;
+    homographWarning = null;
+    await startScan(d);
+  }
+
+  function confirmHomograph() {
+    // « Scanner quand même » : ré-émet la requête avec la confirmation explicite.
+    const target = homographWarning.domain;
+    homographWarning = null;
+    startScan(target, true);
+  }
+
+  function cancelHomograph() {
+    homographWarning = null;
+    loading = false;
   }
 
   async function handleDelete(id) {
@@ -88,6 +112,31 @@
         <p class="error" role="alert">⚠ {error}</p>
       {/if}
     </form>
+
+    {#if homographWarning}
+      <div class="homograph-warning" role="alert">
+        <h3>⚠ Domaine homographe détecté</h3>
+        <p class="homograph-explain">{homographWarning.explanation}</p>
+        <dl class="homograph-forms">
+          <div>
+            <dt>Forme saisie</dt>
+            <dd>{homographWarning.domain}</dd>
+          </div>
+          <div>
+            <dt>Forme réelle scannée (Punycode)</dt>
+            <dd><code>{homographWarning.punycode}</code></dd>
+          </div>
+        </dl>
+        <div class="homograph-actions">
+          <button type="button" class="cancel" on:click={cancelHomograph}>
+            Annuler
+          </button>
+          <button type="button" class="force" on:click={confirmHomograph}>
+            Scanner quand même
+          </button>
+        </div>
+      </div>
+    {/if}
   </section>
 
   {#if scans.length > 0}
@@ -200,6 +249,73 @@
     padding: 8px 12px;
     border-radius: 0 4px 4px 0;
   }
+
+  .homograph-warning {
+    margin-top: 20px;
+    background: #422006;
+    border: 1px solid #b45309;
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .homograph-warning h3 {
+    margin: 0 0 10px;
+    color: #fbbf24;
+    font-size: 1rem;
+    font-weight: 700;
+  }
+  .homograph-explain {
+    margin: 0 0 14px;
+    color: #fde68a;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .homograph-forms {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 0 16px;
+  }
+  .homograph-forms div { display: flex; flex-direction: column; gap: 2px; }
+  .homograph-forms dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #d97706;
+    font-weight: 600;
+  }
+  .homograph-forms dd {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #fef3c7;
+    word-break: break-all;
+  }
+  .homograph-forms code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #1c1206;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .homograph-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .homograph-actions button {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .homograph-actions .cancel {
+    background: #334155;
+    color: #e2e8f0;
+  }
+  .homograph-actions .cancel:hover { background: #475569; }
+  .homograph-actions .force {
+    background: #dc2626;
+    color: #fff;
+  }
+  .homograph-actions .force:hover { background: #b91c1c; }
 
   .history h2 {
     color: #94a3b8;
