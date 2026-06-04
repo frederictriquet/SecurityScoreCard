@@ -2,93 +2,19 @@ import asyncio
 import json
 import random
 import string
-import unicodedata
 
 import dns.resolver
 import dns.asyncresolver
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
-
-
-# Préfixes de noms Unicode qui qualifient un caractère sans désigner son
-# système d'écriture (ex. « MODIFIER LETTER SMALL H », « FULLWIDTH LATIN … »).
-# On les saute pour atteindre le vrai nom de script et éviter de fabriquer de
-# faux « scripts » (MODIFIER, FULLWIDTH…) qui déclencheraient à tort une alerte
-# « scripts mélangés ». Heuristique : voir _alpha_scripts.
-_SCRIPT_NAME_QUALIFIERS = {
-    "MODIFIER", "COMBINING", "FULLWIDTH", "HALFWIDTH", "MATHEMATICAL",
-    "CIRCLED", "PARENTHESIZED", "SUPERSCRIPT", "SUBSCRIPT", "SMALL",
-}
-
-
-# Caractères non latins dont l'apparence imite une lettre ASCII latine.
-# Sert à détecter les attaques homographes (IDN spoofing).
-# NOTE : liste blanche volontairement partielle (cyrillique/grec, les scripts
-# les plus courants pour ce type d'attaque). D'autres familles d'homoglyphes
-# (arménien, latin pleine-chasse, alphanumériques mathématiques…) ne sont pas
-# énumérées et ne déclencheront donc PAS la branche « confusable » (medium) :
-# elles retombent en « info ». Le cas critique du mélange de scripts reste
-# couvert indépendamment de cette liste (branche « scripts mélangés », high).
-_CONFUSABLE_CHARS = {
-    # Cyrillique minuscule
-    "а", "е", "о", "р", "с", "у", "х", "ѕ", "і", "ј", "һ", "ԁ", "ӏ", "ԛ", "ԝ",
-    # Cyrillique majuscule
-    "А", "В", "Е", "К", "М", "Н", "О", "Р", "С", "Т", "У", "Х", "Ѕ", "І", "Ј",
-    # Grec minuscule
-    "ο", "α", "ν", "ρ", "ι", "κ", "υ",
-    # Grec majuscule
-    "Α", "Β", "Ε", "Ζ", "Η", "Ι", "Κ", "Μ", "Ν", "Ο", "Ρ", "Τ", "Υ", "Χ",
-}
-
-
-# Combinaisons de scripts pouvant légitimement coexister dans un même label
-# (UTS#39, profil « Highly Restrictive »). Le japonais mélange normalement Han
-# (CJK) + Hiragana + Katakana, plus la marque d'allongement « ー » dont le nom
-# Unicode commence par KATAKANA-HIRAGANA ; le coréen mélange Han + Hangul. Ces
-# domaines sont parfaitement valides et ne doivent PAS être signalés comme
-# homographes. NB : les scripts sont ici les préfixes de noms Unicode renvoyés
-# par `_alpha_scripts` (heuristique), pas la propriété Unicode « Script ».
-_LEGIT_MULTISCRIPT_SETS = [
-    {"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"},  # japonais
-    {"CJK", "HANGUL"},                                      # coréen
-]
-
-
-def _is_legit_multiscript(scripts: set[str]) -> bool:
-    """Vrai si le mélange de scripts correspond à une combinaison légitime.
-
-    UTS#39 autorise explicitement Han+Kana (japonais) et Han+Hangul (coréen) :
-    un label dont l'ensemble des scripts est un sous-ensemble de l'une de ces
-    combinaisons n'est pas une attaque homographe mais un IDN normal.
-    """
-    return any(scripts <= allowed for allowed in _LEGIT_MULTISCRIPT_SETS)
-
-
-def _alpha_scripts(text: str) -> set[str]:
-    """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques.
-
-    Heuristique (et non la propriété Unicode « Script ») : on déduit le script
-    du premier mot du nom Unicode du caractère (« LATIN SMALL LETTER A » →
-    LATIN). Les préfixes qualificatifs sans valeur de script (MODIFIER,
-    FULLWIDTH…) sont sautés pour éviter des faux positifs « scripts mélangés ».
-    Suffisant pour distinguer latin/cyrillique/grec/CJK dans un nom de domaine,
-    mais à ne pas confondre avec une vraie détection de script.
-    """
-    scripts: set[str] = set()
-    for ch in text:
-        if not ch.isalpha():
-            continue
-        try:
-            name = unicodedata.name(ch)
-        except ValueError:
-            continue
-        # Saute les préfixes qualificatifs pour atteindre le vrai nom de script.
-        words = name.split(" ")
-        idx = 0
-        while idx < len(words) - 1 and words[idx] in _SCRIPT_NAME_QUALIFIERS:
-            idx += 1
-        scripts.add(words[idx])
-    return scripts
+# Primitives d'analyse homographe partagées avec le validateur (`schemas`).
+# Centralisées dans `app.homograph` pour éviter toute divergence de la liste de
+# caractères confusables entre la classification (ici) et l'explication (rejet).
+from app.homograph import (
+    CONFUSABLE_CHARS,
+    alpha_scripts,
+    is_legit_multiscript,
+)
 
 
 class DnsScanner(BaseScanner):
@@ -419,14 +345,14 @@ class DnsScanner(BaseScanner):
 
         Limites connues :
 
-        - La détection « confusables » repose sur `_CONFUSABLE_CHARS`, une liste
+        - La détection « confusables » repose sur `CONFUSABLE_CHARS`, une liste
           blanche partielle (cyrillique/grec). Des familles entières d'homoglyphes
           (arménien, fullwidth, alphanumériques mathématiques…) n'y figurent pas
           et retombent en « info ». Le cas le plus dangereux (mélange latin +
           autre script, ex. « pаypal ») reste couvert par la branche « scripts
           mélangés » indépendamment de cette liste.
         - Les combinaisons de scripts légitimes (japonais Han+Kana, coréen
-          Han+Hangul ; cf. `_LEGIT_MULTISCRIPT_SETS`) sont whitelistées pour
+          Han+Hangul ; cf. `app.homograph`) sont whitelistées pour
           éviter de classer en « high » des IDN parfaitement valides.
         - La conversion en Punycode (validateur + ce check) s'appuie sur le codec
           `.encode("idna")` de la stdlib, qui implémente IDNA2003 et applique un
@@ -449,7 +375,7 @@ class DnsScanner(BaseScanner):
             return  # Domaine ASCII pur : pas de risque homographe
 
         for ascii_label, unicode_label in idn_labels:
-            scripts = _alpha_scripts(unicode_label)
+            scripts = alpha_scripts(unicode_label)
             alpha = [c for c in unicode_label if c.isalpha()]
             raw = json.dumps({
                 "label": ascii_label,
@@ -457,7 +383,7 @@ class DnsScanner(BaseScanner):
                 "scripts": sorted(scripts),
             })
 
-            if len(scripts) > 1 and not _is_legit_multiscript(scripts):
+            if len(scripts) > 1 and not is_legit_multiscript(scripts):
                 findings.append(FindingData(
                     severity="high",
                     title="Domaine homographe : scripts mélangés",
@@ -470,7 +396,7 @@ class DnsScanner(BaseScanner):
                     remediation="Vérifier l'authenticité du domaine et comparer avec la forme Punycode (xn--).",
                     raw_data=raw,
                 ))
-            elif alpha and "LATIN" not in scripts and all(c in _CONFUSABLE_CHARS for c in alpha):
+            elif alpha and "LATIN" not in scripts and all(c in CONFUSABLE_CHARS for c in alpha):
                 findings.append(FindingData(
                     severity="medium",
                     title="Domaine homographe potentiel (caractères confusables)",

@@ -2,6 +2,20 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 import re
 
+from app.homograph import build_homograph_explanation
+
+
+def _reject_domain(original: str) -> "ValueError":
+    """Construit l'erreur de rejet d'un domaine.
+
+    Si l'entrée présente une signature homographe (caractère non latin imitant
+    une lettre ASCII, mélange de scripts), on renvoie une explication détaillée
+    du danger plutôt qu'un laconique « Domaine invalide » : c'est précisément le
+    cas d'un domaine spoofé que l'utilisateur pourrait coller sans comprendre
+    pourquoi il est refusé. Sinon, message générique.
+    """
+    return ValueError(build_homograph_explanation(original) or "Domaine invalide")
+
 
 class ScanCreate(BaseModel):
     domain: str
@@ -11,6 +25,7 @@ class ScanCreate(BaseModel):
     def validate_domain(cls, v: str) -> str:
         v = v.strip().lower().removeprefix("https://").removeprefix("http://")
         v = v.removesuffix("/")  # tolère un slash final mais rejette un vrai chemin
+        original = v  # forme visible soumise, conservée pour expliquer un rejet
         # Convertit les domaines internationalisés (Unicode) en Punycode (xn--).
         # Indispensable pour que la victime puisse coller un domaine homographe
         # tel quel (« pаypal.com » avec un « а » cyrillique) : sans cette
@@ -23,13 +38,13 @@ class ScanCreate(BaseModel):
         try:
             v = v.encode("idna").decode("ascii")
         except (UnicodeError, ValueError):
-            raise ValueError("Domaine invalide")
+            raise _reject_domain(original)
         # Le dernier label accepte aussi un TLD internationalisé (ccTLD/gTLD IDN)
         # qui, après conversion idna, devient un label Punycode « xn--… »
         # contenant chiffres et tirets (ex. « .рф » → « xn--p1ai »).
         pattern = r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9\-]+)$"
         if not re.match(pattern, v):
-            raise ValueError("Domaine invalide")
+            raise _reject_domain(original)
         return v
 
 

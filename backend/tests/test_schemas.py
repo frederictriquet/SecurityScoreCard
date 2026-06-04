@@ -98,6 +98,65 @@ class TestScanCreateIdn:
         assert scan.domain == expected
 
 
+class TestScanCreateHomographRejection:
+    """Rejet d'un domaine homographe : l'erreur explique le danger.
+
+    Quand un domaine non ASCII suspect ne peut pas être validé (ex. label
+    confusable sans TLD, homographe collé avec un chemin), le validateur ne doit
+    pas se contenter d'un laconique « Domaine invalide » : il doit expliquer ce
+    qu'est une attaque homographe et pourquoi c'est dangereux (cf. ticket IDN).
+    """
+
+    def _error_message(self, domain):
+        with pytest.raises(ValidationError) as exc_info:
+            ScanCreate(domain=domain)
+        return exc_info.value.errors()[0]["msg"]
+
+    def test_confusable_only_label_explained(self):
+        # « gооgle » (o cyrilliques) sans TLD : rejeté, mais avec explication.
+        msg = self._error_message("gооgle")
+        assert "homographe" in msg.lower()
+        assert "Domaine invalide" not in msg
+        assert "CYRILLIC" in msg  # nomme le(s) caractère(s) suspect(s)
+
+    def test_homograph_with_path_explained(self):
+        # Homographe collé avec un chemin : rejeté (chemin), mais expliqué.
+        msg = self._error_message("pаypal.com/login")
+        assert "homographe" in msg.lower()
+        assert "IDN spoofing" in msg
+
+    def test_explanation_mentions_punycode_form(self):
+        # L'explication révèle la forme Punycode réelle quand elle est calculable.
+        msg = self._error_message("gооgle")
+        assert "xn--" in msg
+
+    def test_explanation_states_why_dangerous(self):
+        # « pourquoi c'est un problème » : phishing / usurpation de site légitime.
+        msg = self._error_message("аррӏе")  # « apple » tout en cyrillique, no TLD
+        assert "homographe" in msg.lower()
+        assert any(w in msg.lower() for w in ("légitime", "phishing", "identifiants"))
+
+    def test_ascii_invalid_domain_stays_generic(self):
+        # Un domaine ASCII invalide garde le message générique (pas d'homographe).
+        # (Pydantic préfixe le message par « Value error, » d'où le `in`.)
+        msg = self._error_message("exam ple.com")
+        assert "Domaine invalide" in msg
+        assert "homographe" not in msg.lower()
+
+    def test_accented_latin_without_tld_stays_generic(self):
+        # Latin accentué mono-script (« café » sans TLD) n'est pas un homographe :
+        # message générique, pas de fausse alerte « homographe ».
+        msg = self._error_message("café")
+        assert "Domaine invalide" in msg
+        assert "homographe" not in msg.lower()
+
+    def test_legit_idn_without_tld_stays_generic(self):
+        # IDN légitime non confusable (CJK) sans TLD → générique, pas d'alerte.
+        msg = self._error_message("中国")
+        assert "Domaine invalide" in msg
+        assert "homographe" not in msg.lower()
+
+
 class TestScanCreateInvalidDomains:
     @pytest.mark.parametrize("domain", [
         "",
