@@ -689,3 +689,145 @@ class TestDnsFullScan:
             result = await scanner.scan("example.com")
             assert result.score >= 0
             assert isinstance(result.findings, list)
+
+
+# ===================================================================
+# IDN / Homograph (1.14)
+# ===================================================================
+
+
+def _puny(unicode_label: str) -> str:
+    """Encode un label Unicode en Punycode (forme reçue par le scanner)."""
+    return unicode_label.encode("idna").decode("ascii")
+
+
+class TestIdnHomograph:
+    async def test_pure_ascii_no_finding(self, scanner):
+        """Un domaine ASCII pur ne déclenche aucun finding homographe."""
+        findings = []
+        await scanner._check_idn_homograph("example.com", findings)
+        assert findings == []
+
+    async def test_mixed_script_high(self, scanner):
+        """« pаypal » (а cyrillique) mélange latin + cyrillique → high."""
+        domain = f"{_puny('pаypal')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "scripts mélangés" in findings[0].title
+        assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
+
+    async def test_whole_script_confusable_medium(self, scanner):
+        """Label entièrement cyrillique imitant « apple » → medium."""
+        domain = f"{_puny('аррӏе')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "confusable" in findings[0].title.lower()
+
+    async def test_legit_idn_non_latin_info(self, scanner):
+        """Un IDN légitime en script non latin (CJK) → info, pas d'alerte."""
+        domain = f"{_puny('中国')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "internationalisé" in findings[0].title
+
+    async def test_japanese_han_hiragana_not_high(self, scanner):
+        """« 東京めがね.jp » mélange Han + Hiragana ({CJK, HIRAGANA}) : c'est un
+        IDN japonais légitime (UTS#39), il ne doit PAS être classé « high »."""
+        domain = f"{_puny('東京めがね')}.jp"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "internationalisé" in findings[0].title
+
+    async def test_japanese_katakana_prolonged_mark_not_high(self, scanner):
+        """« ソニー » (katakana + marque d'allongement « ー », donc
+        {KATAKANA, KATAKANA-HIRAGANA}) est un nom japonais valide → pas « high »."""
+        domain = f"{_puny('ソニー')}.jp"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_korean_han_hangul_not_high(self, scanner):
+        """Un label coréen mélangeant Han + Hangul ({CJK, HANGUL}) est légitime
+        (UTS#39) et ne doit pas être classé « high »."""
+        domain = f"{_puny('한국例')}.kr"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_cjk_cyrillic_still_high(self, scanner):
+        """Un mélange CJK + cyrillique n'est PAS une combinaison whitelistée :
+        il doit rester « high » (la whitelist JP/KR ne l'absorbe pas)."""
+        domain = f"{_puny('例е')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "CJK" in findings[0].raw_data and "CYRILLIC" in findings[0].raw_data
+
+    async def test_accented_latin_info(self, scanner):
+        """Un label latin accentué (« café ») reste mono-script → info."""
+        domain = f"{_puny('café')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_invalid_punycode_skipped(self, scanner):
+        """Un label xn-- mal formé est ignoré sans crash ni finding."""
+        findings = []
+        await scanner._check_idn_homograph("xn--!!!invalid.com", findings)
+        assert findings == []
+
+    async def test_no_resolver_needed(self, scanner):
+        """Le check est purement local : sa signature n'attend aucun resolver et
+        il produit son finding sans aucune dépendance réseau."""
+        findings = []
+        await scanner._check_idn_homograph(f"{_puny('pаypal')}.fr", findings)
+        assert len(findings) == 1
+
+    async def test_end_to_end_unicode_homograph(self, scanner):
+        """Bout en bout : un homographe Unicode collé tel quel par une victime
+        traverse le validateur (→ Punycode) puis déclenche le finding « high ».
+
+        C'est le cas d'usage réel : l'utilisateur n'entre PAS la forme xn--, il
+        colle « pаypal.com » (« а » cyrillique). Sans la conversion idna du
+        validateur, l'entrée serait rejetée avant d'atteindre ce scanner.
+        """
+        from app.schemas import ScanCreate
+
+        # 1. Le validateur accepte l'Unicode visible et le convertit en Punycode.
+        domain = ScanCreate(domain="pаypal.com").domain
+        assert domain.startswith("xn--")  # bien passé en Punycode
+
+        # 2. Le scanner reçoit cette forme et détecte le mélange de scripts.
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
+
+    async def test_end_to_end_scan_flags_homograph(self, scanner):
+        """Bout en bout via scan() : le domaine homographe converti par le
+        validateur ressort bien dans les findings de l'orchestrateur DNS."""
+        from app.schemas import ScanCreate
+
+        domain = ScanCreate(domain="pаypal.com").domain
+        with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
+            mock_instance = MockResolver.return_value
+            mock_instance.resolve = AsyncMock(side_effect=Exception("mocked"))
+            mock_instance.nameservers = ["8.8.8.8"]
+            result = await scanner.scan(domain)
+
+        homograph = [f for f in result.findings if "homographe" in f.title.lower()]
+        assert len(homograph) == 1
+        assert homograph[0].severity == "high"
