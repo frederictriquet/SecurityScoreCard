@@ -32,6 +32,7 @@ dev.sh            → Helper script (up/down/build/restart/logs/ps)
 ## Conventions
 
 - **Langue** : Code en anglais, commentaires et docs en français
+- **Interface web** : tout le texte visible par l'utilisateur (frontend ET messages d'API renvoyés au frontend) doit être en **anglais**
 - **Commits** : Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`)
 - **Branche principale** : `master`
 - **CI/CD** : GitHub Actions (ci.yml, release.yml, version.yml, dependabot-automerge.yml)
