@@ -702,62 +702,100 @@ def _puny(unicode_label: str) -> str:
 
 
 class TestIdnHomograph:
-    async def test_pure_ascii_no_finding(self, scanner, resolver):
+    async def test_pure_ascii_no_finding(self, scanner):
         """Un domaine ASCII pur ne déclenche aucun finding homographe."""
         findings = []
-        await scanner._check_idn_homograph("example.com", resolver, findings)
+        await scanner._check_idn_homograph("example.com", findings)
         assert findings == []
 
-    async def test_mixed_script_high(self, scanner, resolver):
+    async def test_mixed_script_high(self, scanner):
         """« pаypal » (а cyrillique) mélange latin + cyrillique → high."""
         domain = f"{_puny('pаypal')}.com"
         findings = []
-        await scanner._check_idn_homograph(domain, resolver, findings)
+        await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
         assert "scripts mélangés" in findings[0].title
         assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
 
-    async def test_whole_script_confusable_medium(self, scanner, resolver):
+    async def test_whole_script_confusable_medium(self, scanner):
         """Label entièrement cyrillique imitant « apple » → medium."""
         domain = f"{_puny('аррӏе')}.com"
         findings = []
-        await scanner._check_idn_homograph(domain, resolver, findings)
+        await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "medium"
         assert "confusable" in findings[0].title.lower()
 
-    async def test_legit_idn_non_latin_info(self, scanner, resolver):
+    async def test_legit_idn_non_latin_info(self, scanner):
         """Un IDN légitime en script non latin (CJK) → info, pas d'alerte."""
         domain = f"{_puny('中国')}.com"
         findings = []
-        await scanner._check_idn_homograph(domain, resolver, findings)
+        await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "info"
         assert "internationalisé" in findings[0].title
 
-    async def test_accented_latin_info(self, scanner, resolver):
-        """Un label latin accentué (« café ») reste mono-script → info."""
-        domain = f"{_puny('café')}.com"
+    async def test_japanese_han_hiragana_not_high(self, scanner):
+        """« 東京めがね.jp » mélange Han + Hiragana ({CJK, HIRAGANA}) : c'est un
+        IDN japonais légitime (UTS#39), il ne doit PAS être classé « high »."""
+        domain = f"{_puny('東京めがね')}.jp"
         findings = []
-        await scanner._check_idn_homograph(domain, resolver, findings)
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "internationalisé" in findings[0].title
+
+    async def test_japanese_katakana_prolonged_mark_not_high(self, scanner):
+        """« ソニー » (katakana + marque d'allongement « ー », donc
+        {KATAKANA, KATAKANA-HIRAGANA}) est un nom japonais valide → pas « high »."""
+        domain = f"{_puny('ソニー')}.jp"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "info"
 
-    async def test_invalid_punycode_skipped(self, scanner, resolver):
+    async def test_korean_han_hangul_not_high(self, scanner):
+        """Un label coréen mélangeant Han + Hangul ({CJK, HANGUL}) est légitime
+        (UTS#39) et ne doit pas être classé « high »."""
+        domain = f"{_puny('한국例')}.kr"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_cjk_cyrillic_still_high(self, scanner):
+        """Un mélange CJK + cyrillique n'est PAS une combinaison whitelistée :
+        il doit rester « high » (la whitelist JP/KR ne l'absorbe pas)."""
+        domain = f"{_puny('例е')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "CJK" in findings[0].raw_data and "CYRILLIC" in findings[0].raw_data
+
+    async def test_accented_latin_info(self, scanner):
+        """Un label latin accentué (« café ») reste mono-script → info."""
+        domain = f"{_puny('café')}.com"
+        findings = []
+        await scanner._check_idn_homograph(domain, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_invalid_punycode_skipped(self, scanner):
         """Un label xn-- mal formé est ignoré sans crash ni finding."""
         findings = []
-        await scanner._check_idn_homograph("xn--!!!invalid.com", resolver, findings)
+        await scanner._check_idn_homograph("xn--!!!invalid.com", findings)
         assert findings == []
 
-    async def test_no_network_call(self, scanner, resolver):
-        """Le check est purement local : il n'interroge jamais le resolver."""
-        resolver.resolve = AsyncMock(side_effect=AssertionError("ne doit pas résoudre"))
+    async def test_no_resolver_needed(self, scanner):
+        """Le check est purement local : sa signature n'attend aucun resolver et
+        il produit son finding sans aucune dépendance réseau."""
         findings = []
-        await scanner._check_idn_homograph(f"{_puny('pаypal')}.fr", resolver, findings)
+        await scanner._check_idn_homograph(f"{_puny('pаypal')}.fr", findings)
         assert len(findings) == 1
 
-    async def test_end_to_end_unicode_homograph(self, scanner, resolver):
+    async def test_end_to_end_unicode_homograph(self, scanner):
         """Bout en bout : un homographe Unicode collé tel quel par une victime
         traverse le validateur (→ Punycode) puis déclenche le finding « high ».
 
@@ -773,7 +811,7 @@ class TestIdnHomograph:
 
         # 2. Le scanner reçoit cette forme et détecte le mélange de scripts.
         findings = []
-        await scanner._check_idn_homograph(domain, resolver, findings)
+        await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
         assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data

@@ -17,11 +17,17 @@ class ScanCreate(BaseModel):
         # conversion, la regex ASCII ci-dessous le rejetterait avant que le
         # scanner homographe ne puisse l'analyser. Les domaines ASCII purs sont
         # renvoyés inchangés par le codec idna.
+        # NB : ce codec implémente IDNA2003 (mapping silencieux non conforme aux
+        # navigateurs modernes / UTS#46, ex. « straße.de » → « strasse.de ») ;
+        # cf. la limite documentée dans DnsScanner._check_idn_homograph.
         try:
             v = v.encode("idna").decode("ascii")
         except (UnicodeError, ValueError):
             raise ValueError("Domaine invalide")
-        pattern = r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+        # Le dernier label accepte aussi un TLD internationalisé (ccTLD/gTLD IDN)
+        # qui, après conversion idna, devient un label Punycode « xn--… »
+        # contenant chiffres et tirets (ex. « .рф » → « xn--p1ai »).
+        pattern = r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9\-]+)$"
         if not re.match(pattern, v):
             raise ValueError("Domaine invalide")
         return v

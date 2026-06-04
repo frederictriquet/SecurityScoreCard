@@ -41,6 +41,29 @@ _CONFUSABLE_CHARS = {
 }
 
 
+# Combinaisons de scripts pouvant légitimement coexister dans un même label
+# (UTS#39, profil « Highly Restrictive »). Le japonais mélange normalement Han
+# (CJK) + Hiragana + Katakana, plus la marque d'allongement « ー » dont le nom
+# Unicode commence par KATAKANA-HIRAGANA ; le coréen mélange Han + Hangul. Ces
+# domaines sont parfaitement valides et ne doivent PAS être signalés comme
+# homographes. NB : les scripts sont ici les préfixes de noms Unicode renvoyés
+# par `_alpha_scripts` (heuristique), pas la propriété Unicode « Script ».
+_LEGIT_MULTISCRIPT_SETS = [
+    {"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"},  # japonais
+    {"CJK", "HANGUL"},                                      # coréen
+]
+
+
+def _is_legit_multiscript(scripts: set[str]) -> bool:
+    """Vrai si le mélange de scripts correspond à une combinaison légitime.
+
+    UTS#39 autorise explicitement Han+Kana (japonais) et Han+Hangul (coréen) :
+    un label dont l'ensemble des scripts est un sous-ensemble de l'une de ces
+    combinaisons n'est pas une attaque homographe mais un IDN normal.
+    """
+    return any(scripts <= allowed for allowed in _LEGIT_MULTISCRIPT_SETS)
+
+
 def _alpha_scripts(text: str) -> set[str]:
     """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques.
 
@@ -92,7 +115,7 @@ class DnsScanner(BaseScanner):
             self._check_axfr(domain, resolver, findings),
             self._check_wildcard(domain, resolver, findings),
             self._check_ns_redundancy(domain, resolver, findings),
-            self._check_idn_homograph(domain, resolver, findings),
+            self._check_idn_homograph(domain, findings),
         )
 
         return ScanResult.from_findings(findings)
@@ -384,21 +407,33 @@ class DnsScanner(BaseScanner):
                 ))
 
 
-    async def _check_idn_homograph(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+    async def _check_idn_homograph(self, domain: str, findings: list) -> None:
         """Détection passive d'un domaine homographe (IDN spoofing).
 
-        Analyse purement locale du nom de domaine : aucune requête réseau.
+        Analyse purement locale du nom de domaine : aucune requête réseau (d'où
+        l'absence de paramètre `resolver`, contrairement aux autres checks DNS).
         Le validateur (`schemas.validate_domain`) convertit l'input en Punycode
         via `.encode("idna")`, donc les domaines internationalisés — y compris
         ceux qu'une victime colle sous leur forme Unicode visible — arrivent ici
         encodés en labels `xn--`, prêts à être décodés et analysés.
 
-        Limites connues : la détection « confusables » repose sur
-        `_CONFUSABLE_CHARS`, une liste blanche partielle (cyrillique/grec). Des
-        familles entières d'homoglyphes (arménien, fullwidth, alphanumériques
-        mathématiques…) n'y figurent pas et retombent en « info ». Le cas le plus
-        dangereux (mélange latin + autre script, ex. « pаypal ») reste lui couvert
-        par la branche « scripts mélangés » indépendamment de cette liste.
+        Limites connues :
+
+        - La détection « confusables » repose sur `_CONFUSABLE_CHARS`, une liste
+          blanche partielle (cyrillique/grec). Des familles entières d'homoglyphes
+          (arménien, fullwidth, alphanumériques mathématiques…) n'y figurent pas
+          et retombent en « info ». Le cas le plus dangereux (mélange latin +
+          autre script, ex. « pаypal ») reste couvert par la branche « scripts
+          mélangés » indépendamment de cette liste.
+        - Les combinaisons de scripts légitimes (japonais Han+Kana, coréen
+          Han+Hangul ; cf. `_LEGIT_MULTISCRIPT_SETS`) sont whitelistées pour
+          éviter de classer en « high » des IDN parfaitement valides.
+        - La conversion en Punycode (validateur + ce check) s'appuie sur le codec
+          `.encode("idna")` de la stdlib, qui implémente IDNA2003 et applique un
+          mapping silencieux NON conforme aux navigateurs modernes
+          (UTS#46/IDNA2008) — ex. « straße.de » → « strasse.de ». Pour un outil
+          comparant l'apparence d'un domaine à sa forme réelle, la normalisation
+          peut donc différer de celle vue par la victime dans son navigateur.
         """
         idn_labels: list[tuple[str, str]] = []  # (label ASCII, label Unicode)
         for label in domain.split("."):
@@ -422,7 +457,7 @@ class DnsScanner(BaseScanner):
                 "scripts": sorted(scripts),
             })
 
-            if len(scripts) > 1:
+            if len(scripts) > 1 and not _is_legit_multiscript(scripts):
                 findings.append(FindingData(
                     severity="high",
                     title="Domaine homographe : scripts mélangés",

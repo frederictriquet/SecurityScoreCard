@@ -84,6 +84,19 @@ class TestScanCreateIdn:
         scan = ScanCreate(domain="example.com")
         assert scan.domain == "example.com"
 
+    @pytest.mark.parametrize("domain,expected", [
+        # TLD internationalisés (ccTLD/gTLD IDN) : le label de tête devient un
+        # Punycode « xn--… » avec chiffres/tirets, qui doit être accepté.
+        ("президент.рф", "xn--d1abbgf6aiiy.xn--p1ai"),
+        ("x.中国", "x.xn--fiqs8s"),
+        ("例е.テсть", "xn--e1a5869a.xn--q1ac4az709a"),
+    ])
+    def test_internationalized_tld_accepted(self, domain, expected):
+        # Sans le support des TLD Punycode, ces domaines étaient rejetés à tort,
+        # rendant la détection homographe inopérante sur l'espace ccTLD/gTLD IDN.
+        scan = ScanCreate(domain=domain)
+        assert scan.domain == expected
+
 
 class TestScanCreateInvalidDomains:
     @pytest.mark.parametrize("domain", [
