@@ -5,14 +5,32 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import socket
 
 import httpx
+import dns.resolver
+import dns.asyncresolver
 
 from app.scanners.reputation import (
     ReputationScanner,
     _resolve_ips,
     _check_abuseipdb,
     _check_spamhaus_dns,
+    _registrable_domain,
+    _decode_dnsbl,
+    _check_surbl_uribl,
+    SURBL_BITS,
+    URIBL_BITS,
 )
 from app.scanners.base import FindingData
+from tests.conftest import FakeDnsAnswer
+
+
+class FakeARecord:
+    """Simulate a dns A record whose ``str()`` yields the IP address."""
+
+    def __init__(self, ip: str):
+        self._ip = ip
+
+    def __str__(self) -> str:
+        return self._ip
 
 
 @pytest.fixture
@@ -259,13 +277,17 @@ class TestCheckSpamhausDns:
 
 class TestReputationFullScan:
     async def test_no_ips_resolved(self, scanner):
-        with patch("app.scanners.reputation._resolve_ips", return_value=[]):
+        with (
+            patch("app.scanners.reputation._resolve_ips", return_value=[]),
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+        ):
             result = await scanner.scan("nonexistent.example.com")
             assert len(result.findings) == 1
             assert result.findings[0].severity == "info"
 
     async def test_with_abuseipdb_key(self, scanner):
         with (
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
             patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
             patch("os.getenv", return_value="fake-key"),
             patch("app.scanners.reputation._check_abuseipdb", new_callable=AsyncMock) as mock_abuse,
@@ -275,9 +297,196 @@ class TestReputationFullScan:
 
     async def test_without_abuseipdb_key_falls_back_to_spamhaus(self, scanner):
         with (
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
             patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
             patch("os.getenv", return_value=""),
             patch("app.scanners.reputation._check_spamhaus_dns") as mock_spam,
         ):
             await scanner.scan("example.com")
             mock_spam.assert_called_once()
+
+    async def test_surbl_uribl_called(self, scanner):
+        with (
+            patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
+            patch("os.getenv", return_value=""),
+            patch("app.scanners.reputation._check_spamhaus_dns"),
+            patch(
+                "app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock
+            ) as mock_surbl,
+        ):
+            await scanner.scan("example.com")
+            mock_surbl.assert_called_once()
+
+    async def test_surbl_uribl_runs_even_without_ips(self, scanner):
+        with (
+            patch("app.scanners.reputation._resolve_ips", return_value=[]),
+            patch(
+                "app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock
+            ) as mock_surbl,
+        ):
+            await scanner.scan("nonexistent.example.com")
+            mock_surbl.assert_called_once()
+
+
+# ===================================================================
+# _registrable_domain
+# ===================================================================
+
+
+class TestRegistrableDomain:
+    def test_simple_domain_unchanged(self):
+        assert _registrable_domain("example.com") == "example.com"
+
+    def test_strips_subdomain(self):
+        assert _registrable_domain("mail.foo.example.com") == "example.com"
+
+    def test_multi_part_tld(self):
+        assert _registrable_domain("example.co.uk") == "example.co.uk"
+
+    def test_subdomain_with_multi_part_tld(self):
+        assert _registrable_domain("mail.example.co.uk") == "example.co.uk"
+
+    def test_case_insensitive_and_trailing_dot(self):
+        assert _registrable_domain("WWW.Example.COM.") == "example.com"
+
+
+# ===================================================================
+# _decode_dnsbl
+# ===================================================================
+
+
+class TestDecodeDnsbl:
+    def test_not_listed(self):
+        listed, sublists, refused = _decode_dnsbl([], SURBL_BITS)
+        assert (listed, sublists, refused) == (False, [], False)
+
+    def test_listed_with_bitmask(self):
+        # 24 = 8 (phishing) | 16 (malware)
+        listed, sublists, refused = _decode_dnsbl(["127.0.0.24"], SURBL_BITS)
+        assert listed is True
+        assert sublists == ["malware", "phishing"]
+        assert refused is False
+
+    def test_listed_without_known_bit(self):
+        # 127.0.0.2 does not match any SURBL bit -> generic listing
+        listed, sublists, refused = _decode_dnsbl(["127.0.0.2"], SURBL_BITS)
+        assert listed is True
+        assert sublists == []
+        assert refused is False
+
+    def test_refused_code_not_a_listing(self):
+        listed, sublists, refused = _decode_dnsbl(["127.0.0.1"], URIBL_BITS)
+        assert listed is False
+        assert sublists == []
+        assert refused is True
+
+    def test_non_loopback_response_ignored(self):
+        listed, sublists, refused = _decode_dnsbl(["1.2.3.4"], SURBL_BITS)
+        assert (listed, sublists, refused) == (False, [], False)
+
+
+# ===================================================================
+# _check_surbl_uribl
+# ===================================================================
+
+
+def _resolver_returning(mapping):
+    """Build a resolve() side_effect from a {fqdn: outcome} mapping.
+
+    Each outcome is either a FakeDnsAnswer, or an exception instance/class to
+    raise (e.g. NXDOMAIN, timeout).
+    """
+    async def _resolve(fqdn, _rdtype):
+        outcome = mapping[fqdn]
+        if isinstance(outcome, BaseException) or (
+            isinstance(outcome, type) and issubclass(outcome, BaseException)
+        ):
+            raise outcome
+        return outcome
+
+    return _resolve
+
+
+class TestCheckSurblUribl:
+    async def test_listed_on_surbl(self):
+        findings = []
+        mapping = {
+            "example.com.multi.surbl.org": FakeDnsAnswer([FakeARecord("127.0.0.8")]),
+            "example.com.multi.uribl.com": dns.resolver.NXDOMAIN,
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            await _check_surbl_uribl("example.com", findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "SURBL" in findings[0].title
+        assert "phishing" in findings[0].description
+        assert "surbl.org" in findings[0].remediation
+
+    async def test_listed_on_both(self):
+        findings = []
+        mapping = {
+            "example.com.multi.surbl.org": FakeDnsAnswer([FakeARecord("127.0.0.16")]),
+            "example.com.multi.uribl.com": FakeDnsAnswer([FakeARecord("127.0.0.2")]),
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            await _check_surbl_uribl("example.com", findings)
+        assert len(findings) == 1
+        assert "SURBL" in findings[0].title
+        assert "URIBL" in findings[0].title
+
+    async def test_clean_domain_no_finding(self):
+        findings = []
+        mapping = {
+            "example.com.multi.surbl.org": dns.resolver.NXDOMAIN,
+            "example.com.multi.uribl.com": dns.resolver.NXDOMAIN,
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            await _check_surbl_uribl("example.com", findings)
+        assert len(findings) == 0
+
+    async def test_uribl_refused_code_is_not_a_hit(self):
+        findings = []
+        mapping = {
+            "example.com.multi.surbl.org": dns.resolver.NXDOMAIN,
+            # 127.0.0.1 = query refused / rate-limited, must NOT be a listing
+            "example.com.multi.uribl.com": FakeDnsAnswer([FakeARecord("127.0.0.1")]),
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            await _check_surbl_uribl("example.com", findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "undetermined" in findings[0].title.lower()
+        assert "URIBL" in findings[0].description
+
+    async def test_dns_error_does_not_crash(self):
+        findings = []
+        mapping = {
+            "example.com.multi.surbl.org": dns.resolver.LifetimeTimeout,
+            "example.com.multi.uribl.com": Exception("boom"),
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            await _check_surbl_uribl("example.com", findings)
+        assert len(findings) == 0
+
+    async def test_uses_registrable_domain(self):
+        findings = []
+        mapping = {
+            "example.co.uk.multi.surbl.org": dns.resolver.NXDOMAIN,
+            "example.co.uk.multi.uribl.com": dns.resolver.NXDOMAIN,
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            # subdomain should be reduced to the registrable domain
+            await _check_surbl_uribl("mail.example.co.uk", findings)
+        assert len(findings) == 0

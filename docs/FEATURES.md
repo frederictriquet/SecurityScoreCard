@@ -131,7 +131,7 @@ Objectif : scan passif le plus exhaustif possible, sans API payante, avec des ou
 | 7.5 | PhishTank | medium | [ ] | API gratuite — domaine flaggé phishing ? |
 | 7.6 | URLhaus (abuse.ch) | high | [ ] | API gratuite — malware URLs |
 | 7.7 | VirusTotal | medium | [ ] | API gratuite (4 req/min) — hash de domaine |
-| 7.8 | Listes SURBL / URIBL | medium | [ ] | DNS-based, gratuit |
+| 7.8 | Listes SURBL / URIBL | medium | [x] | DNS-based, gratuit |
 
 ---
 
