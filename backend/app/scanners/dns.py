@@ -35,6 +35,7 @@ class DnsScanner(BaseScanner):
             self._check_dkim(domain, resolver, findings),
             self._check_dnssec(domain, resolver, findings),
             self._check_mx(domain, resolver, findings),
+            self._check_starttls_mx(domain, resolver, findings),
             self._check_caa(domain, resolver, findings),
             self._check_mta_sts(domain, resolver, findings),
             self._check_dane(domain, resolver, findings),
@@ -152,6 +153,72 @@ class DnsScanner(BaseScanner):
                 severity="info",
                 title="No MX record",
                 description="The domain does not appear to receive emails (no MX record).",
+            ))
+
+    async def _check_starttls_mx(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        """Check whether each MX advertises STARTTLS (opportunistic SMTP encryption).
+
+        For every MX host we open an SMTP connection on port 25, send EHLO and
+        look for the STARTTLS capability in the advertised extensions.
+
+        Critical caveat: outbound port 25 is very frequently blocked by cloud /
+        CI / ISP networks (connection refused or timeout). When we cannot reach a
+        host we treat the result as *indeterminate* — never as "STARTTLS missing".
+        A finding is only raised for a host that answered EHLO without offering
+        STARTTLS, so a blocked port can never degrade the score.
+        """
+        try:
+            mx_answers = await resolver.resolve(domain, "MX")
+            # dnspython types the answer items as the base ``Rdata``; cast to the
+            # concrete MX record type to expose the ``exchange`` attribute.
+            mx_hosts = [
+                str(cast(dns.rdtypes.ANY.MX.MX, r).exchange).rstrip(".")
+                for r in mx_answers
+            ]
+        except Exception:
+            return  # No MX → not applicable, no STARTTLS to check
+
+        mx_hosts = [h for h in mx_hosts if h]
+        if not mx_hosts:
+            return
+
+        loop = asyncio.get_event_loop()
+        missing: list[str] = []
+        reachable = 0
+        for mx_host in mx_hosts[:3]:
+            try:
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(None, _probe_starttls, mx_host),
+                    timeout=10,
+                )
+            except Exception:
+                result = None  # timeout / executor error → indeterminate
+            if result is None:
+                continue  # could not connect (port 25 blocked, refused...): skip
+            reachable += 1
+            if result is False:
+                missing.append(mx_host)
+
+        if missing:
+            findings.append(FindingData(
+                severity="high",
+                title="STARTTLS not offered by MX",
+                description=(
+                    "The following mail server(s) accept SMTP connections but do "
+                    f"not advertise STARTTLS: {', '.join(missing)}. Emails to these "
+                    "servers are delivered in cleartext and can be intercepted."
+                ),
+                remediation="Enable STARTTLS on the mail server(s) to encrypt SMTP transport.",
+                raw_data=json.dumps({"mx_without_starttls": missing}),
+            ))
+        elif reachable == 0:
+            findings.append(FindingData(
+                severity="info",
+                title="STARTTLS: MX not testable",
+                description=(
+                    "Could not reach any MX server on port 25 (often blocked by "
+                    "the network), so STARTTLS support could not be verified."
+                ),
             ))
 
     # --- Phase 1: new checks ---
@@ -430,6 +497,27 @@ class DnsScanner(BaseScanner):
                     ),
                     raw_data=raw,
                 ))
+
+
+def _probe_starttls(mx_host: str, timeout: float = 7.0) -> bool | None:
+    """Probe a single MX host for STARTTLS support (blocking, run in an executor).
+
+    Returns:
+        ``True``  -> the server answered EHLO and advertised STARTTLS.
+        ``False`` -> the server answered EHLO but STARTTLS is absent.
+        ``None``  -> could not determine (connection refused, timeout, port 25
+                     blocked, malformed greeting...). This must NOT be read as a
+                     missing-STARTTLS signal.
+    """
+    import smtplib
+    try:
+        with smtplib.SMTP(mx_host, port=25, timeout=timeout) as smtp:
+            code, _ = smtp.ehlo()
+            if code < 200 or code >= 400:
+                return None  # EHLO refused → cannot conclude
+            return smtp.has_extn("starttls")
+    except Exception:
+        return None  # network / SMTP error → indeterminate, never a hit
 
 
 def _try_axfr(ns_host: str, domain: str) -> bool:
