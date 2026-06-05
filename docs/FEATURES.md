@@ -254,7 +254,7 @@ Au-delà des checks bruts : valeur ajoutée côté présentation, suivi et explo
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| 13.1 | Comparaison historique | [ ] | Les scans sont déjà persistés (`Scan`, `Finding`). Afficher l'évolution du score d'un domaine dans le temps (régression / amélioration entre 2 scans) |
+| 13.1 | Comparaison historique | [x] | `GET /api/scans/history?domain=` (historique trié) + `GET /api/scans/{id}/diff` (findings apparus/résolus, delta score/grade). Timeline + diff affichés sur `routes/scan/[id]` via `ScanHistory.svelte` |
 | 13.2 | Export / rapport PDF | [x] | `frontend/src/lib/exportPdf.js` (jspdf-autotable), utilisé dans `routes/scan/[id]/+page.svelte` |
 | 13.3 | Remédiation actionnable | [x] | Champ `remediation` présent dans `models.py`/`schemas.py` et peuplé dans tous les scanners |
 | 13.4 | API publique / scan par lot | [ ] | Endpoint pour scanner plusieurs domaines (CI, parc de domaines) |

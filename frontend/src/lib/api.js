@@ -38,6 +38,18 @@ export async function listScans() {
   return res.json();
 }
 
+export async function getScanHistory(domain) {
+  const res = await fetch(`${BASE}/scans/history?domain=${encodeURIComponent(domain)}`);
+  if (!res.ok) throw new Error(`Error ${res.status}`);
+  return res.json();
+}
+
+export async function getScanDiff(id) {
+  const res = await fetch(`${BASE}/scans/${id}/diff`);
+  if (!res.ok) throw new Error(`Error ${res.status}`);
+  return res.json();
+}
+
 export async function rescanInPlace(id) {
   const res = await fetch(`${BASE}/scans/${id}/rescan`, { method: 'POST' });
   if (!res.ok) {
