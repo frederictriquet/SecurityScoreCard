@@ -322,7 +322,7 @@ class TestRunSingleScannerFailure:
         findings = modules[0].findings
         assert len(findings) == 1
         assert findings[0].severity == "info"
-        assert findings[0].title == "Scan échoué"
+        assert findings[0].title == "Scan failed"
         assert "Connection refused" in findings[0].description
 
     async def test_completed_at_set_even_on_failure(self):
@@ -539,7 +539,7 @@ class TestRunScanPartialFailure:
         modules = await _get_modules(scan_id)
         findings = modules[0].findings
         assert len(findings) == 1
-        assert findings[0].title == "Scan échoué"
+        assert findings[0].title == "Scan failed"
         assert "DNS timeout" in findings[0].description
 
 
@@ -579,7 +579,7 @@ class TestRunScanAllFailed:
         for m in modules:
             assert m.status == "failed"
             assert len(m.findings) == 1
-            assert m.findings[0].title == "Scan échoué"
+            assert m.findings[0].title == "Scan failed"
 
 
 # ===================================================================

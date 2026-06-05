@@ -138,7 +138,7 @@ class TestProcessEntryCertChecks:
         findings = []
         _process_entry({"id": "cert_chain_of_trust", "severity": "HIGH", "finding": "NOT ok"}, findings)
         assert len(findings) == 1
-        assert "Chaîne de certificats" in findings[0].title
+        assert "certificate chain" in findings[0].title.lower()
         assert findings[0].severity == "high"
 
     def test_intermediate_cert_missing(self):
@@ -146,7 +146,7 @@ class TestProcessEntryCertChecks:
         findings = []
         _process_entry({"id": "intermediate_cert", "severity": "MEDIUM", "finding": "missing"}, findings)
         assert len(findings) == 1
-        assert "intermédiaire" in findings[0].title.lower()
+        assert "intermediate" in findings[0].title.lower()
         assert findings[0].severity == "medium"
 
     def test_cert_check_ok_no_finding(self):

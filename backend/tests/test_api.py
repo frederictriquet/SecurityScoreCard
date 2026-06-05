@@ -181,7 +181,7 @@ class TestCreateScanHomographConfirmation:
         assert resp.status_code == 409
         detail = resp.json()["detail"]
         assert detail["needs_confirmation"] is True
-        assert "homographe" in detail["explanation"].lower()
+        assert "homograph" in detail["explanation"].lower()
         assert detail["domain"] == self.HOMOGRAPH
         assert detail["punycode"] == self.HOMOGRAPH_PUNYCODE
         # No scan created, no background task launched.
@@ -397,7 +397,7 @@ class TestGetScan:
     async def test_get_scan_not_found(self, client):
         resp = await client.get("/api/scans/nonexistent-id")
         assert resp.status_code == 404
-        assert "introuvable" in resp.json()["detail"].lower()
+        assert "not found" in resp.json()["detail"].lower()
 
     async def test_get_scan_with_completed_modules(self, client):
         """GET retourne les modules et findings après exécution E2E."""

@@ -59,7 +59,7 @@ class TestLeaksScan:
             result = await scanner.scan("example.com")
         assert len(result.findings) == 1
         assert result.findings[0].severity == "info"
-        assert "non supporté" in result.findings[0].title.lower()
+        assert "unsupported" in result.findings[0].title.lower()
 
     async def test_unexpected_status_code(self, scanner):
         import respx
@@ -99,7 +99,7 @@ class TestLeaksScan:
             result = await scanner.scan("example.com")
         assert len(result.findings) == 1
         assert result.findings[0].severity == "low"
-        assert "1 breach" in result.findings[0].title
+        assert "1 known breach" in result.findings[0].title
 
     async def test_2_breaches_low_severity(self, scanner):
         import respx
@@ -174,7 +174,7 @@ class TestLeaksScan:
 
             result = await scanner.scan("example.com")
         assert result.findings[0].severity == "critical"
-        assert "11 breach" in result.findings[0].title
+        assert "11 known breach" in result.findings[0].title
 
     async def test_breach_names_in_description(self, scanner):
         import respx
@@ -203,7 +203,7 @@ class TestLeaksScan:
             ).mock(return_value=httpx.Response(200, json=breaches))
 
             result = await scanner.scan("example.com")
-        assert "et d'autres" in result.findings[0].description
+        assert "and others" in result.findings[0].description
 
     async def test_exactly_5_breaches_no_et_dautres(self, scanner):
         import respx
@@ -215,7 +215,7 @@ class TestLeaksScan:
             ).mock(return_value=httpx.Response(200, json=breaches))
 
             result = await scanner.scan("example.com")
-        assert "et d'autres" not in result.findings[0].description
+        assert "and others" not in result.findings[0].description
 
     async def test_connection_error(self, scanner):
         import respx
@@ -228,7 +228,7 @@ class TestLeaksScan:
             result = await scanner.scan("example.com")
         assert len(result.findings) == 1
         assert result.findings[0].severity == "info"
-        assert "erreur de connexion" in result.findings[0].title.lower()
+        assert "connection error" in result.findings[0].title.lower()
 
     async def test_score_deduction_for_breaches(self, scanner):
         import respx
@@ -255,4 +255,4 @@ class TestLeaksScan:
 
             result = await scanner.scan("example.com")
         assert result.findings[0].remediation is not None
-        assert "multi-facteurs" in result.findings[0].remediation
+        assert "multi-factor" in result.findings[0].remediation

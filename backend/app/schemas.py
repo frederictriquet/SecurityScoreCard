@@ -11,11 +11,11 @@ def _reject_domain(original: str) -> "ValueError":
 
     If the input exhibits a homograph signature (non-Latin character imitating an
     ASCII letter, script mix), we return a detailed explanation of the danger
-    rather than a terse "Domaine invalide": this is precisely the case of a
+    rather than a terse "Invalid domain": this is precisely the case of a
     spoofed domain that the user might paste without understanding why it is
     refused. Otherwise, a generic message.
     """
-    return ValueError(build_homograph_explanation(original) or "Domaine invalide")
+    return ValueError(build_homograph_explanation(original) or "Invalid domain")
 
 
 # The last label also accepts an internationalized TLD (ccTLD/gTLD IDN) which,

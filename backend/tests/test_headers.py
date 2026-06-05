@@ -322,7 +322,7 @@ class TestCheckCors:
             await _check_cors("https://example.com", findings)
         assert len(findings) == 1
         assert findings[0].severity == "medium"
-        assert "réflexion" in findings[0].title.lower()
+        assert "reflection" in findings[0].title.lower()
 
     async def test_cors_no_header(self):
         import respx
@@ -672,7 +672,7 @@ class TestHeadersFullScan:
             )
             result = await scanner.scan("example.com")
             assert result.findings[0].severity == "high"
-            assert "Impossible" in result.findings[0].title
+            assert "Unable" in result.findings[0].title
 
     async def test_missing_headers_detected(self, scanner):
         import respx
@@ -713,7 +713,7 @@ class TestHeadersFullScan:
             )
 
             result = await scanner.scan("example.com")
-            leaky = [f for f in result.findings if "informatif" in f.title.lower()]
+            leaky = [f for f in result.findings if "informational" in f.title.lower()]
             assert len(leaky) >= 2
             assert any("server" in f.title.lower() for f in leaky)
             assert any("x-powered-by" in f.title.lower() for f in leaky)
@@ -1208,7 +1208,7 @@ class TestFullScanInsecureFormsAndComments:
 
             result = await scanner.scan("example.com")
 
-        form_findings = [f for f in result.findings if "Formulaire" in f.title]
+        form_findings = [f for f in result.findings if "Form" in f.title]
         assert len(form_findings) == 1
         assert form_findings[0].severity == "high"
         assert "evil.com" in form_findings[0].description
@@ -1236,7 +1236,7 @@ class TestFullScanInsecureFormsAndComments:
 
             result = await scanner.scan("example.com")
 
-        comment_findings = [f for f in result.findings if "Commentaire HTML" in f.title]
+        comment_findings = [f for f in result.findings if "HTML comment" in f.title]
         assert len(comment_findings) >= 1
         assert comment_findings[0].severity == "low"
         assert "password" in comment_findings[0].title or "todo" in comment_findings[0].title
@@ -1739,7 +1739,7 @@ class TestCheckErrorPages:
 
         assert len(findings) == 1
         assert findings[0].severity == "medium"
-        assert "erreur" in findings[0].title.lower()
+        assert "error page" in findings[0].title.lower()
 
     async def test_clean_error_page_no_finding(self):
         """Clean error page → no finding."""
@@ -1809,7 +1809,7 @@ class TestCookieSecurePrefix:
         findings = []
         seen = set()
         _analyze_cookie("__Secure-session=abc; HttpOnly; SameSite=Lax", "/", seen, findings)
-        prefix_findings = [f for f in findings if "préfixe __Secure-" in f.title]
+        prefix_findings = [f for f in findings if "__Secure- prefix" in f.title]
         assert len(prefix_findings) == 1
         assert prefix_findings[0].severity == "medium"
 
@@ -1827,7 +1827,7 @@ class TestCookieSecurePrefix:
         seen = set()
         _analyze_cookie("__Secure-session=abc; HttpOnly", "/", seen, findings)
         _analyze_cookie("__Secure-session=abc; HttpOnly", "/login", seen, findings)
-        prefix_findings = [f for f in findings if "préfixe __Secure-" in f.title]
+        prefix_findings = [f for f in findings if "__Secure- prefix" in f.title]
         assert len(prefix_findings) == 1
 
 
@@ -1842,16 +1842,16 @@ class TestCookieHostPrefix:
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Path=/; HttpOnly; SameSite=Lax", "/", seen, findings)
-        host_findings = [f for f in findings if "préfixe __Host-" in f.title]
+        host_findings = [f for f in findings if "__Host- prefix" in f.title]
         assert len(host_findings) == 1
-        assert "Secure manquant" in host_findings[0].description
+        assert "Secure missing" in host_findings[0].description
 
     def test_host_prefix_with_domain(self):
         """Cookie __Host-X with Domain → medium finding."""
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Secure; Path=/; Domain=example.com; HttpOnly; SameSite=Lax", "/", seen, findings)
-        host_findings = [f for f in findings if "préfixe __Host-" in f.title]
+        host_findings = [f for f in findings if "__Host- prefix" in f.title]
         assert len(host_findings) == 1
         assert "Domain" in host_findings[0].description
 
@@ -1860,7 +1860,7 @@ class TestCookieHostPrefix:
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Secure; Path=/admin; HttpOnly; SameSite=Lax", "/", seen, findings)
-        host_findings = [f for f in findings if "préfixe __Host-" in f.title]
+        host_findings = [f for f in findings if "__Host- prefix" in f.title]
         assert len(host_findings) == 1
         assert "Path" in host_findings[0].description
 
@@ -1869,7 +1869,7 @@ class TestCookieHostPrefix:
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Secure; Path=/; HttpOnly; SameSite=Lax", "/", seen, findings)
-        host_findings = [f for f in findings if "préfixe __Host-" in f.title]
+        host_findings = [f for f in findings if "__Host- prefix" in f.title]
         assert len(host_findings) == 0
 
 
@@ -1884,7 +1884,7 @@ class TestCookieMaxAge:
         findings = []
         seen = set()
         _analyze_cookie("tracker=abc; Max-Age=63072000; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
-        maxage_findings = [f for f in findings if "durée de vie" in f.title]
+        maxage_findings = [f for f in findings if "excessive lifetime" in f.title]
         assert len(maxage_findings) == 1
         assert maxage_findings[0].severity == "low"
 
@@ -1893,7 +1893,7 @@ class TestCookieMaxAge:
         findings = []
         seen = set()
         _analyze_cookie("tracker=abc; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
-        maxage_findings = [f for f in findings if "durée de vie" in f.title]
+        maxage_findings = [f for f in findings if "excessive lifetime" in f.title]
         assert len(maxage_findings) == 0
 
     def test_max_age_invalid_value(self):
@@ -1901,7 +1901,7 @@ class TestCookieMaxAge:
         findings = []
         seen = set()
         _analyze_cookie("tracker=abc; Max-Age=abc; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
-        maxage_findings = [f for f in findings if "durée de vie" in f.title]
+        maxage_findings = [f for f in findings if "excessive lifetime" in f.title]
         assert len(maxage_findings) == 0
 
 

@@ -115,14 +115,14 @@ class TestScanCreateHomographRejection:
     def test_confusable_only_label_explained(self):
         # "gооgle" (Cyrillic o) without TLD: rejected, but with an explanation.
         msg = self._error_message("gооgle")
-        assert "homographe" in msg.lower()
-        assert "Domaine invalide" not in msg
+        assert "homograph" in msg.lower()
+        assert "Invalid domain" not in msg
         assert "CYRILLIC" in msg  # names the suspicious character(s)
 
     def test_homograph_with_path_explained(self):
         # Homograph pasted with a path: rejected (path), but explained.
         msg = self._error_message("pаypal.com/login")
-        assert "homographe" in msg.lower()
+        assert "homograph" in msg.lower()
         assert "IDN spoofing" in msg
 
     def test_explanation_mentions_punycode_form(self):
@@ -133,28 +133,28 @@ class TestScanCreateHomographRejection:
     def test_explanation_states_why_dangerous(self):
         # "why it is a problem": phishing / impersonation of a legitimate site.
         msg = self._error_message("аррӏе")  # "apple" entirely in Cyrillic, no TLD
-        assert "homographe" in msg.lower()
-        assert any(w in msg.lower() for w in ("légitime", "phishing", "identifiants"))
+        assert "homograph" in msg.lower()
+        assert any(w in msg.lower() for w in ("legitimate", "phishing", "credentials"))
 
     def test_ascii_invalid_domain_stays_generic(self):
         # An invalid ASCII domain keeps the generic message (not a homograph).
         # (Pydantic prefixes the message with "Value error, " hence the `in`.)
         msg = self._error_message("exam ple.com")
-        assert "Domaine invalide" in msg
-        assert "homographe" not in msg.lower()
+        assert "Invalid domain" in msg
+        assert "homograph" not in msg.lower()
 
     def test_accented_latin_without_tld_stays_generic(self):
         # Single-script accented Latin ("café" without TLD) is not a homograph:
         # generic message, no false "homograph" alert.
         msg = self._error_message("café")
-        assert "Domaine invalide" in msg
-        assert "homographe" not in msg.lower()
+        assert "Invalid domain" in msg
+        assert "homograph" not in msg.lower()
 
     def test_legit_idn_without_tld_stays_generic(self):
         # Legitimate non-confusable IDN (CJK) without TLD → generic, no alert.
         msg = self._error_message("中国")
-        assert "Domaine invalide" in msg
-        assert "homographe" not in msg.lower()
+        assert "Invalid domain" in msg
+        assert "homograph" not in msg.lower()
 
 
 class TestScanCreateInvalidDomains:

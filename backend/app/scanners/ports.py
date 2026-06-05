@@ -65,10 +65,10 @@ class PortsScanner(BaseScanner):
                 svc_name = port_info.get("service", DANGEROUS_PORTS[port_num])
                 findings.append(FindingData(
                     severity="high",
-                    title=f"Port dangereux exposé : {port_num}/{port_info['proto']} ({svc_name})",
-                    description=f"Le port {port_num} ({DANGEROUS_PORTS[port_num]}) est ouvert sur Internet. "
-                                "Ce service ne devrait pas être directement accessible.",
-                    remediation=f"Restreindre l'accès au port {port_num} via un pare-feu ou un VPN.",
+                    title=f"Dangerous port exposed: {port_num}/{port_info['proto']} ({svc_name})",
+                    description=f"Port {port_num} ({DANGEROUS_PORTS[port_num]}) is open on the Internet. "
+                                "This service should not be directly accessible.",
+                    remediation=f"Restrict access to port {port_num} via a firewall or a VPN.",
                     raw_data=json.dumps(port_info),
                 ))
 
@@ -84,9 +84,9 @@ class PortsScanner(BaseScanner):
             )
             findings.append(FindingData(
                 severity="info",
-                title=f"{len(open_ports)} port(s) ouvert(s) détecté(s)",
-                description=f"Ports non-standard ouverts : {port_list}",
-                remediation="Vérifier que seuls les ports nécessaires sont exposés.",
+                title=f"{len(open_ports)} open port(s) detected",
+                description=f"Non-standard open ports: {port_list}",
+                remediation="Check that only the necessary ports are exposed.",
             ))
 
         return ScanResult.from_findings(findings)
@@ -179,16 +179,16 @@ async def _check_whois(domain: str, findings: list[FindingData]) -> None:
 
         details: list[str] = []
         if info.get("registrar"):
-            details.append(f"Registrar : {info['registrar']}")
+            details.append(f"Registrar: {info['registrar']}")
         if info.get("creation_date"):
-            details.append(f"Créé le : {info['creation_date']}")
+            details.append(f"Created on: {info['creation_date']}")
         if info.get("expiration_date"):
-            details.append(f"Expire le : {info['expiration_date']}")
+            details.append(f"Expires on: {info['expiration_date']}")
 
         if details:
             findings.append(FindingData(
                 severity="info",
-                title="Informations WHOIS du domaine",
+                title="Domain WHOIS information",
                 description=" | ".join(details),
                 raw_data=json.dumps(info),
             ))
@@ -197,10 +197,10 @@ async def _check_whois(domain: str, findings: list[FindingData]) -> None:
         if info.get("age_days") is not None and info["age_days"] < 30:
             findings.append(FindingData(
                 severity="medium",
-                title=f"Domaine très récent ({info['age_days']} jours)",
-                description="Le domaine a été enregistré il y a moins de 30 jours. "
-                            "Les domaines récents sont souvent associés à du phishing ou du spam.",
-                remediation="Vérifier la légitimité du domaine.",
+                title=f"Very recent domain ({info['age_days']} days)",
+                description="The domain was registered less than 30 days ago. "
+                            "Recent domains are often associated with phishing or spam.",
+                remediation="Check the legitimacy of the domain.",
             ))
 
     except Exception:

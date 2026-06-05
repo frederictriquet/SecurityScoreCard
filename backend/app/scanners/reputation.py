@@ -19,8 +19,8 @@ class ReputationScanner(BaseScanner):
         if not ips:
             findings.append(FindingData(
                 severity="info",
-                title="Impossible de résoudre les IPs du domaine",
-                description=f"Aucune IP résolue pour {domain}.",
+                title="Unable to resolve the domain's IPs",
+                description=f"No IP resolved for {domain}.",
             ))
             return ScanResult.from_findings(findings)
 
@@ -68,9 +68,9 @@ async def _check_abuseipdb(ips: list[str], api_key: str, findings: list) -> None
 
                 findings.append(FindingData(
                     severity=sev,
-                    title=f"IP {ip} : score d'abus {score}/100",
-                    description=f"{reports} signalement(s) dans les 90 derniers jours (AbuseIPDB).",
-                    remediation="Contacter l'hébergeur ou envisager un changement d'IP.",
+                    title=f"IP {ip}: abuse score {score}/100",
+                    description=f"{reports} report(s) in the last 90 days (AbuseIPDB).",
+                    remediation="Contact the hosting provider or consider changing the IP.",
                 ))
             except Exception:
                 continue
@@ -87,9 +87,9 @@ def _check_spamhaus_dns(ips: list[str], findings: list) -> None:
             # If resolved → IP is listed
             findings.append(FindingData(
                 severity="high",
-                title=f"IP {ip} référencée dans Spamhaus ZEN",
-                description="L'IP est présente dans les listes noires Spamhaus (spam, malware ou compromission).",
-                remediation="Vérifier l'IP sur https://check.spamhaus.org et demander une suppression si légitime.",
+                title=f"IP {ip} listed in Spamhaus ZEN",
+                description="The IP is present in Spamhaus blocklists (spam, malware, or compromise).",
+                remediation="Check the IP at https://check.spamhaus.org and request removal if legitimate.",
             ))
         except socket.gaierror:
             pass  # NXDOMAIN = not in the list, which is good

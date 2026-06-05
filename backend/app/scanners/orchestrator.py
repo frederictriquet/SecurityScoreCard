@@ -70,7 +70,7 @@ async def run_single_scanner(scanner: BaseScanner, domain: str, scan_id: str) ->
             session.add(Finding(
                 module_id=module.id,
                 severity="info",
-                title="Scan échoué",
+                title="Scan failed",
                 description=str(exc),
             ))
 

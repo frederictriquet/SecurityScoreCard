@@ -519,8 +519,8 @@ class TestCheckWhois:
 
         medium_findings = [f for f in findings if f.severity == "medium"]
         assert len(medium_findings) == 1
-        assert "récent" in medium_findings[0].title.lower()
-        assert "10 jours" in medium_findings[0].title
+        assert "recent" in medium_findings[0].title.lower()
+        assert "10 days" in medium_findings[0].title
 
     async def test_old_domain_no_warning(self):
         info = {
@@ -585,8 +585,8 @@ class TestCheckWhois:
         assert len(info_findings) == 1
         assert "Gandi" in info_findings[0].description
         # Empty dates are not included in the description
-        assert "Créé le" not in info_findings[0].description
-        assert "Expire le" not in info_findings[0].description
+        assert "Created on" not in info_findings[0].description
+        assert "Expires on" not in info_findings[0].description
 
     async def test_whois_age_none_no_medium(self):
         """age_days None → no medium finding."""

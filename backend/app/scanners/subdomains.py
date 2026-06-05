@@ -32,16 +32,16 @@ class SubdomainsScanner(BaseScanner):
         if not subdomains:
             findings.append(FindingData(
                 severity="info",
-                title="Aucun sous-domaine trouvé dans Certificate Transparency",
-                description="crt.sh n'a retourné aucun sous-domaine pour ce domaine.",
+                title="No subdomain found in Certificate Transparency",
+                description="crt.sh returned no subdomain for this domain.",
             ))
             return ScanResult.from_findings(findings)
 
         findings.append(FindingData(
             severity="info",
-            title=f"{len(subdomains)} sous-domaine(s) détectés via Certificate Transparency",
-            description="Liste : " + ", ".join(sorted(subdomains)[:20])
-                + (" (et plus...)" if len(subdomains) > 20 else ""),
+            title=f"{len(subdomains)} subdomain(s) detected via Certificate Transparency",
+            description="List: " + ", ".join(sorted(subdomains)[:20])
+                + (" (and more...)" if len(subdomains) > 20 else ""),
         ))
 
         await _check_takeover(subdomains, findings)
@@ -86,9 +86,9 @@ async def _check_takeover(subdomains: set[str], findings: list) -> None:
                 if matched:
                     findings.append(FindingData(
                         severity="high",
-                        title=f"Potentiel subdomain takeover : {sub}",
-                        description=f"Le sous-domaine répond avec un 404 d'un service tiers ({matched}).",
-                        remediation=f"Supprimer le CNAME de {sub} ou réclamer la ressource sur le service.",
+                        title=f"Potential subdomain takeover: {sub}",
+                        description=f"The subdomain responds with a 404 from a third-party service ({matched}).",
+                        remediation=f"Remove the CNAME for {sub} or claim the resource on the service.",
                     ))
             except Exception:
                 pass

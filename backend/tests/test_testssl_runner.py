@@ -98,7 +98,7 @@ class TestProcessEntry:
         }, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "Chaîne" in findings[0].title
+        assert "certificate chain" in findings[0].title.lower()
 
     def test_intermediate_cert_issue(self):
         findings = []

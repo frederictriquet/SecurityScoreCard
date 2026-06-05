@@ -26,16 +26,16 @@ class LeaksScanner(BaseScanner):
                 if resp.status_code == 400:
                     findings.append(FindingData(
                         severity="info",
-                        title="HIBP : domaine non supporté",
-                        description="Have I Been Pwned ne peut pas rechercher ce domaine.",
+                        title="HIBP: unsupported domain",
+                        description="Have I Been Pwned cannot search this domain.",
                     ))
                     return ScanResult.from_findings(findings)
 
                 if resp.status_code != 200:
                     findings.append(FindingData(
                         severity="info",
-                        title=f"HIBP : réponse inattendue ({resp.status_code})",
-                        description="Impossible de récupérer les données de breach pour ce domaine.",
+                        title=f"HIBP: unexpected response ({resp.status_code})",
+                        description="Unable to retrieve breach data for this domain.",
                     ))
                     return ScanResult.from_findings(findings)
 
@@ -58,23 +58,23 @@ class LeaksScanner(BaseScanner):
                 breach_names = list(data.keys())[:5]
                 findings.append(FindingData(
                     severity=sev,
-                    title=f"{breach_count} breach(es) connue(s) pour ce domaine (HIBP)",
+                    title=f"{breach_count} known breach(es) for this domain (HIBP)",
                     description=(
-                        f"Have I Been Pwned recense {breach_count} breach(es) associée(s) au domaine. "
-                        f"Exemples : {', '.join(breach_names)}"
-                        + (" et d'autres." if breach_count > 5 else ".")
+                        f"Have I Been Pwned lists {breach_count} breach(es) associated with the domain. "
+                        f"Examples: {', '.join(breach_names)}"
+                        + (" and others." if breach_count > 5 else ".")
                     ),
                     remediation=(
-                        "Informer les utilisateurs concernés, vérifier les mots de passe compromis "
-                        "et activer l'authentification multi-facteurs."
+                        "Inform the affected users, check for compromised passwords "
+                        "and enable multi-factor authentication."
                     ),
                 ))
 
         except Exception as exc:
             findings.append(FindingData(
                 severity="info",
-                title="HIBP : erreur de connexion",
-                description=f"Impossible de contacter Have I Been Pwned : {exc}",
+                title="HIBP: connection error",
+                description=f"Unable to contact Have I Been Pwned: {exc}",
             ))
 
         return ScanResult.from_findings(findings)
