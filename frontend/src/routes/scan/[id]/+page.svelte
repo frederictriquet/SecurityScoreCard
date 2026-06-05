@@ -6,12 +6,15 @@
   import ScoreGauge from '$lib/components/ScoreGauge.svelte';
   import ModuleCard from '$lib/components/ModuleCard.svelte';
   import ScanStatus from '$lib/components/ScanStatus.svelte';
+  import ScanHistory from '$lib/components/ScanHistory.svelte';
   import { downloadPdf } from '$lib/exportPdf.js';
 
   let scan = null;
   let error = '';
   let interval = null;
   let retries = 0;
+  // Bumped on each completion so the history/diff panel re-fetches fresh data.
+  let historyKey = 0;
   const MAX_RETRIES = 3;
   const POLL_INTERVAL = 2000;
 
@@ -24,6 +27,7 @@
       if (scan.status === 'completed' || scan.status === 'failed') {
         clearInterval(interval);
         interval = null;
+        historyKey++;
       }
     } catch (e) {
       retries++;
@@ -170,6 +174,10 @@
         </button>
       {/if}
     </div>
+
+    {#if scan.status === 'completed' || scan.status === 'failed'}
+      <ScanHistory scanId={scan.id} domain={scan.domain} refreshKey={historyKey} />
+    {/if}
 
     <div class="modules-toolbar">
       <button class="fold-btn" on:click={foldAll} disabled={allCollapsed}>Collapse all</button>

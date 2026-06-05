@@ -747,3 +747,274 @@ class TestConcurrency:
         domains = {r.json()["domain"] for r in results}
         assert domains == {"alpha.com", "beta.com", "gamma.com"}
         assert await _count_rows(Scan) == 3
+
+
+# ===================================================================
+# GET /api/scans/history — historical comparison (13.1)
+# ===================================================================
+
+
+async def _insert_scan(
+    *,
+    domain: str,
+    created_at,
+    score: int | None = None,
+    grade: str | None = None,
+    status: str = "completed",
+    findings: list[tuple[str, str, str]] | None = None,
+):
+    """Insert a scan with its findings directly in DB.
+
+    ``findings`` is a list of ``(module_name, severity, title)`` tuples; they are
+    grouped per module. Returns the created scan id.
+    """
+    async with _db.AsyncSessionLocal() as session:
+        scan = Scan(
+            domain=domain,
+            status=status,
+            score=score,
+            grade=grade,
+            created_at=created_at,
+        )
+        session.add(scan)
+        await session.flush()
+
+        modules: dict[str, ScanModule] = {}
+        for module_name, severity, title in findings or []:
+            module = modules.get(module_name)
+            if module is None:
+                module = ScanModule(
+                    scan_id=scan.id,
+                    name=module_name,
+                    weight=1.0,
+                    status="completed",
+                )
+                session.add(module)
+                await session.flush()
+                modules[module_name] = module
+            session.add(Finding(
+                module_id=module.id,
+                severity=severity,
+                title=title,
+                description=title,
+            ))
+
+        await session.commit()
+        return scan.id
+
+
+class TestScanHistory:
+    async def test_history_unknown_domain_is_empty(self, client):
+        resp = await client.get("/api/scans/history", params={"domain": "nope.com"})
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_history_filtered_by_domain(self, client):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await _insert_scan(domain="example.com", created_at=base)
+        await _insert_scan(domain="example.com", created_at=base.replace(day=2))
+        await _insert_scan(domain="other.com", created_at=base.replace(day=3))
+
+        resp = await client.get("/api/scans/history", params={"domain": "example.com"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        assert all(s["domain"] == "example.com" for s in data)
+
+    async def test_history_sorted_desc(self, client):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await _insert_scan(domain="example.com", created_at=base, score=50, grade="F")
+        await _insert_scan(
+            domain="example.com", created_at=base.replace(day=5), score=90, grade="A"
+        )
+        await _insert_scan(
+            domain="example.com", created_at=base.replace(day=3), score=70, grade="C"
+        )
+
+        resp = await client.get("/api/scans/history", params={"domain": "example.com"})
+        data = resp.json()
+        assert [s["score"] for s in data] == [90, 70, 50]
+
+    async def test_history_returns_summary_fields(self, client):
+        from datetime import datetime, timezone
+
+        await _insert_scan(
+            domain="example.com",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            score=80,
+            grade="B",
+        )
+        resp = await client.get("/api/scans/history", params={"domain": "example.com"})
+        scan = resp.json()[0]
+        assert set(scan) == {"id", "domain", "status", "score", "grade", "created_at"}
+
+
+# ===================================================================
+# GET /api/scans/{scan_id}/diff — diff between two scans (13.1)
+# ===================================================================
+
+
+class TestScanDiff:
+    async def test_diff_scan_not_found(self, client):
+        resp = await client.get("/api/scans/nope/diff")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+    async def test_diff_single_scan_has_no_previous(self, client):
+        from datetime import datetime, timezone
+
+        scan_id = await _insert_scan(
+            domain="example.com",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            score=80,
+            grade="B",
+            findings=[("headers", "medium", "Missing CSP")],
+        )
+        resp = await client.get(f"/api/scans/{scan_id}/diff")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["scan_id"] == scan_id
+        assert data["previous_scan"] is None
+        assert data["score_delta"] is None
+        assert data["grade_change"] is None
+        assert data["new_findings"] == []
+        assert data["resolved_findings"] == []
+
+    async def test_diff_against_previous_scan(self, client):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await _insert_scan(
+            domain="example.com",
+            created_at=base,
+            score=60,
+            grade="D",
+            findings=[
+                ("headers", "high", "Missing HSTS"),
+                ("dns", "medium", "No DMARC"),
+            ],
+        )
+        current_id = await _insert_scan(
+            domain="example.com",
+            created_at=base.replace(day=2),
+            score=80,
+            grade="B",
+            findings=[
+                ("dns", "medium", "No DMARC"),
+                ("tls", "low", "Weak cipher"),
+            ],
+        )
+
+        resp = await client.get(f"/api/scans/{current_id}/diff")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["previous_scan"]["score"] == 60
+        assert data["score_delta"] == 20
+        assert data["grade_change"] == "D->B"
+
+        new_titles = {(f["module"], f["title"]) for f in data["new_findings"]}
+        resolved_titles = {(f["module"], f["title"]) for f in data["resolved_findings"]}
+        assert new_titles == {("tls", "Weak cipher")}
+        assert resolved_titles == {("headers", "Missing HSTS")}
+
+    async def test_diff_same_title_different_module_is_distinct(self, client):
+        """Finding identity is (module, title), not the title alone."""
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await _insert_scan(
+            domain="example.com",
+            created_at=base,
+            score=70,
+            grade="C",
+            findings=[("headers", "low", "Issue")],
+        )
+        current_id = await _insert_scan(
+            domain="example.com",
+            created_at=base.replace(day=2),
+            score=70,
+            grade="C",
+            findings=[("dns", "low", "Issue")],
+        )
+
+        resp = await client.get(f"/api/scans/{current_id}/diff")
+        data = resp.json()
+        assert {(f["module"], f["title"]) for f in data["new_findings"]} == {
+            ("dns", "Issue")
+        }
+        assert {(f["module"], f["title"]) for f in data["resolved_findings"]} == {
+            ("headers", "Issue")
+        }
+        # Same grade on both scans → no grade_change reported.
+        assert data["grade_change"] is None
+        assert data["score_delta"] == 0
+
+    async def test_diff_against_explicit_scan_id(self, client):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        oldest_id = await _insert_scan(
+            domain="example.com",
+            created_at=base,
+            score=40,
+            grade="F",
+            findings=[("dns", "high", "No SPF")],
+        )
+        # An intermediate scan that would be the default "previous".
+        await _insert_scan(
+            domain="example.com",
+            created_at=base.replace(day=2),
+            score=55,
+            grade="F",
+            findings=[("dns", "high", "No SPF")],
+        )
+        current_id = await _insert_scan(
+            domain="example.com",
+            created_at=base.replace(day=3),
+            score=90,
+            grade="A",
+            findings=[],
+        )
+
+        resp = await client.get(
+            f"/api/scans/{current_id}/diff", params={"against": oldest_id}
+        )
+        data = resp.json()
+        assert data["previous_scan"]["id"] == oldest_id
+        assert data["score_delta"] == 50
+        assert {(f["module"], f["title"]) for f in data["resolved_findings"]} == {
+            ("dns", "No SPF")
+        }
+
+    async def test_diff_against_unknown_scan_is_404(self, client):
+        from datetime import datetime, timezone
+
+        scan_id = await _insert_scan(
+            domain="example.com",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        resp = await client.get(
+            f"/api/scans/{scan_id}/diff", params={"against": "nope"}
+        )
+        assert resp.status_code == 404
+
+    async def test_diff_score_delta_absent_when_scores_missing(self, client):
+        from datetime import datetime, timezone
+
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        await _insert_scan(
+            domain="example.com", created_at=base, status="failed", score=None
+        )
+        current_id = await _insert_scan(
+            domain="example.com", created_at=base.replace(day=2), status="failed",
+            score=None,
+        )
+        resp = await client.get(f"/api/scans/{current_id}/diff")
+        data = resp.json()
+        assert data["previous_scan"] is not None
+        assert data["score_delta"] is None

@@ -153,3 +153,30 @@ class ScanSummary(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class FindingRef(BaseModel):
+    """Stable reference to a finding, used to diff two scans.
+
+    A finding's identity is its (module, title) pair, not the DB id, so the same
+    issue detected across two scans of a domain compares equal.
+    """
+
+    module: str
+    severity: str
+    title: str
+
+
+class ScanComparison(BaseModel):
+    """Diff of a scan against the previous scan of the same domain.
+
+    When there is no previous scan, ``previous_scan`` is ``None``, ``score_delta``
+    and ``grade_change`` are absent, and both finding lists are empty.
+    """
+
+    scan_id: str
+    previous_scan: ScanSummary | None = None
+    score_delta: int | None = None
+    grade_change: str | None = None  # e.g. "C->B" when the grade changed
+    new_findings: list[FindingRef] = []
+    resolved_findings: list[FindingRef] = []
