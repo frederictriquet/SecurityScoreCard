@@ -121,7 +121,7 @@ class TestScanResult:
 class TestBaseScanner:
     def test_cannot_instantiate_directly(self):
         with pytest.raises(TypeError):
-            BaseScanner()
+            BaseScanner()  # pyright: ignore[reportAbstractUsage]
 
     def test_subclass_must_implement_scan(self):
         class Incomplete(BaseScanner):
@@ -129,7 +129,7 @@ class TestBaseScanner:
             weight = 0.1
 
         with pytest.raises(TypeError):
-            Incomplete()
+            Incomplete()  # pyright: ignore[reportAbstractUsage]
 
     def test_valid_subclass(self):
         class Valid(BaseScanner):

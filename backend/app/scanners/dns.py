@@ -2,9 +2,12 @@ import asyncio
 import json
 import random
 import string
+from typing import cast
 
 import dns.resolver
 import dns.asyncresolver
+import dns.rdtypes.ANY.MX
+import dns.rdtypes.ANY.NS
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 # Homograph analysis primitives shared with the validator (`schemas`).
@@ -183,7 +186,12 @@ class DnsScanner(BaseScanner):
     async def _check_dane(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
             mx_answers = await resolver.resolve(domain, "MX")
-            mx_hosts = [str(r.exchange).rstrip(".") for r in mx_answers]
+            # dnspython types the answer items as the base ``Rdata``; cast to the
+            # concrete MX record type to expose the ``exchange`` attribute.
+            mx_hosts = [
+                str(cast(dns.rdtypes.ANY.MX.MX, r).exchange).rstrip(".")
+                for r in mx_answers
+            ]
         except Exception:
             return  # No MX, no DANE to check
 
@@ -266,7 +274,8 @@ class DnsScanner(BaseScanner):
             return
 
         for ns in ns_answers:
-            ns_host = str(ns.target).rstrip(".")
+            # Cast to the concrete NS record type to expose ``target``.
+            ns_host = str(cast(dns.rdtypes.ANY.NS.NS, ns).target).rstrip(".")
             try:
                 loop = asyncio.get_event_loop()
                 result = await asyncio.wait_for(
@@ -300,7 +309,10 @@ class DnsScanner(BaseScanner):
     async def _check_ns_redundancy(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
             ns_answers = await resolver.resolve(domain, "NS")
-            ns_hosts = [str(r.target).rstrip(".") for r in ns_answers]
+            ns_hosts = [
+                str(cast(dns.rdtypes.ANY.NS.NS, r).target).rstrip(".")
+                for r in ns_answers
+            ]
         except Exception:
             return
 

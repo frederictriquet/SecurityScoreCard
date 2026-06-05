@@ -1,6 +1,8 @@
 """Tests pour les routes API — endpoints CRUD scans, intégration, rate limiting."""
 
 import asyncio
+from typing import cast
+
 import pytest
 from unittest.mock import patch, AsyncMock
 
@@ -86,7 +88,8 @@ class _FailingScanner(BaseScanner):
 async def _count_rows(model) -> int:
     async with _db.AsyncSessionLocal() as session:
         result = await session.execute(select(func.count()).select_from(model))
-        return result.scalar()
+        # ``count()`` always yields exactly one row, so the scalar is never None.
+        return cast(int, result.scalar())
 
 
 async def _get_scan_with_modules(scan_id: str) -> Scan:
@@ -713,7 +716,9 @@ class TestConcurrency:
         # mais les background tasks concurrentes peuvent échouer en DB.
         # On vérifie qu'il n'y a pas de crash non géré (pas d'exception Python propagée).
         for r in results:
-            if isinstance(r, Exception):
+            # ``gather(return_exceptions=True)`` yields ``BaseException`` on
+            # failure; narrowing on it lets the else branch see the Response.
+            if isinstance(r, BaseException):
                 # Exceptions SQLAlchemy dans les background tasks sont acceptables
                 # car elles sont capturées par Starlette et ne crashent pas le serveur
                 assert "row" in str(r).lower() or "result" in str(r).lower(), \

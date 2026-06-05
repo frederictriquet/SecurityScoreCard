@@ -127,7 +127,7 @@ def make_cert_info(
     issuer_cn="Let's Encrypt Authority X3",
     subject_cn="example.com",
     key_type="RSA",
-    key_size=2048,
+    key_size: int | None = 2048,
     sig_algo="sha256",
     protocol="TLSv1.3",
     cipher="TLS_AES_256_GCM_SHA384",

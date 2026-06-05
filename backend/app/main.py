@@ -18,7 +18,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SecurityScoreCard API", lifespan=lifespan)
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# slowapi's handler is typed more narrowly than Starlette's ExceptionHandler
+# (it expects ``RateLimitExceeded`` rather than the base ``Exception``); this is
+# a known upstream typing limitation, not a runtime issue.
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,  # pyright: ignore[reportArgumentType]
+)
 
 app.add_middleware(
     CORSMiddleware,

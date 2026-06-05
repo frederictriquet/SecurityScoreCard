@@ -316,6 +316,7 @@ class TestWhoisSync:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == "2020-06-01"
         assert result["expiration_date"] == "2025-06-01"
 
@@ -410,6 +411,7 @@ class TestFirstDateHelper:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == "2023-07-15"
         assert result["expiration_date"] == "2028-07-15"
 
@@ -424,6 +426,7 @@ class TestFirstDateHelper:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == "2020-03-10"
         assert result["expiration_date"] == "2025-03-10"
 
@@ -438,6 +441,7 @@ class TestFirstDateHelper:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == "before 2000"
         assert result["expiration_date"] == "unknown"
 
@@ -452,6 +456,7 @@ class TestFirstDateHelper:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == ""
         assert result["expiration_date"] == ""
 
@@ -466,6 +471,7 @@ class TestFirstDateHelper:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == ""
         assert result["expiration_date"] == ""
 
@@ -480,6 +486,7 @@ class TestFirstDateHelper:
         with _mock_whois(mock_w):
             result = _whois_sync("example.com")
 
+        assert result is not None
         assert result["creation_date"] == "2019-05-20"
         assert result["expiration_date"] == "N/A"
 
