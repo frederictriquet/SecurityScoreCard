@@ -251,14 +251,14 @@ class TestRunSingleScannerSuccess:
         findings = [
             FindingData(
                 severity="high",
-                title="Problème A",
+                title="Issue A",
                 description="Description A",
                 remediation="Fix A",
                 raw_data='{"detail": "a"}',
             ),
             FindingData(
                 severity="low",
-                title="Problème B",
+                title="Issue B",
                 description="Description B",
             ),
         ]
@@ -277,13 +277,13 @@ class TestRunSingleScannerSuccess:
         assert len(db_findings) == 2
 
         # Verify that each field is correctly persisted
-        finding_a = next(f for f in db_findings if f.title == "Problème A")
+        finding_a = next(f for f in db_findings if f.title == "Issue A")
         assert finding_a.severity == "high"
         assert finding_a.description == "Description A"
         assert finding_a.remediation == "Fix A"
         assert finding_a.raw_data == '{"detail": "a"}'
 
-        finding_b = next(f for f in db_findings if f.title == "Problème B")
+        finding_b = next(f for f in db_findings if f.title == "Issue B")
         assert finding_b.severity == "low"
         assert finding_b.remediation is None
         assert finding_b.raw_data is None
@@ -698,15 +698,15 @@ class TestRunScanFindingsPersistence:
 
         fake_scanners = [
             FakeScanner("dns", 0.5, score=80, findings=[
-                FindingData(severity="high", title="SPF manquant", description="Pas de SPF"),
+                FindingData(severity="high", title="SPF missing", description="No SPF record"),
                 FindingData(severity="medium", title="DMARC p=none", description="Monitoring"),
             ]),
             FakeScanner("tls", 0.5, score=70, findings=[
                 FindingData(
                     severity="critical",
-                    title="Cert expiré",
-                    description="Le cert a expiré",
-                    remediation="Renouveler",
+                    title="Cert expired",
+                    description="The certificate has expired",
+                    remediation="Renew the certificate",
                     raw_data='{"days": -5}',
                 ),
             ]),
@@ -724,9 +724,9 @@ class TestRunScanFindingsPersistence:
         # Verify full persistence of the TLS finding
         cert_finding = tls_mod.findings[0]
         assert cert_finding.severity == "critical"
-        assert cert_finding.title == "Cert expiré"
-        assert cert_finding.description == "Le cert a expiré"
-        assert cert_finding.remediation == "Renouveler"
+        assert cert_finding.title == "Cert expired"
+        assert cert_finding.description == "The certificate has expired"
+        assert cert_finding.remediation == "Renew the certificate"
         assert cert_finding.raw_data == '{"days": -5}'
 
     async def test_info_findings_do_not_affect_score(self):

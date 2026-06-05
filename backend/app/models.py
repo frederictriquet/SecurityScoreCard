@@ -37,10 +37,12 @@ class ScanModule(Base):
     # orchestrator create modules idempotently (INSERT ... ON CONFLICT DO NOTHING)
     # and guarantees a single row per (scan_id, name), so concurrent rescans can
     # no longer produce duplicates that crash the per-module lookup.
-    # NOTE: the SQLite schema is built with ``create_all`` (no Alembic), so this
-    # applies to freshly created databases only. An existing database keeps its
-    # old schema until the table is recreated (the stored scan results are
-    # disposable and can simply be regenerated).
+    # NOTE: the SQLite schema is built with ``create_all`` (no Alembic), which
+    # only adds this index to freshly created databases. Existing databases on a
+    # persistent volume are migrated in place at startup by
+    # ``database._ensure_scan_module_unique_index`` (it backfills the index,
+    # collapsing any pre-existing duplicate rows first), so the orchestrator's
+    # ON CONFLICT path works on both new and already-deployed databases.
     __table_args__ = (
         UniqueConstraint("scan_id", "name", name="uq_scan_module_scan_id_name"),
     )
