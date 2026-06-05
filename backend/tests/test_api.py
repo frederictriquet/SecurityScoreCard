@@ -85,6 +85,26 @@ class _FailingScanner(BaseScanner):
         raise RuntimeError(self._msg)
 
 
+class _SlowScanner(BaseScanner):
+    """Scanner that suspends mid-scan, like real network I/O-bound scanners.
+
+    A no-await scanner never lets two runners of the same module interleave, so
+    it cannot expose the concurrent finding-duplication race. This one yields
+    control so overlapping rescans genuinely overlap.
+    """
+
+    def __init__(self, name, weight, score, findings=None, delay=0.05):
+        self.name = name
+        self.weight = weight
+        self._score = score
+        self._findings = findings or []
+        self._delay = delay
+
+    async def scan(self, domain: str) -> ScanResult:
+        await asyncio.sleep(self._delay)
+        return ScanResult(score=self._score, findings=list(self._findings))
+
+
 async def _count_rows(model) -> int:
     async with _db.AsyncSessionLocal() as session:
         result = await session.execute(select(func.count()).select_from(model))
@@ -689,11 +709,14 @@ class TestConcurrency:
         The orchestrator looks up each module by ``(scan_id, name)``. Without the
         unique constraint, two overlapping rescans created duplicate modules,
         which crashed the lookup (``MultipleResultsFound``), or deleted a module
-        mid-flight (``NoResultFound``). With the constraint plus idempotent module
-        creation and a tolerant lookup, the concurrent run converges to exactly
-        one module per scanner, with no unhandled exception.
+        mid-flight (``NoResultFound``). The scanner suspends mid-scan, so two
+        runners of the surviving module also interleave their finding writes.
+        With the constraint, idempotent module creation and the per-module claim,
+        the concurrent run converges to exactly one module holding its findings
+        exactly once, with no unhandled exception.
         """
-        scanners = [_FakeScanner("s", 1.0, score=80)]
+        finding = FindingData(severity="high", title="Risky", description="Dup risk")
+        scanners = [_SlowScanner("s", 1.0, score=80, findings=[finding])]
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
         scan_id = resp.json()["id"]
 
@@ -704,7 +727,8 @@ class TestConcurrency:
         # target inside each gathered task would overlap two unittest.mock.patch
         # contexts on one global: their save/restore is not concurrency-safe and
         # would leave SCANNERS permanently corrupted, leaking into later tests.
-        with patch("app.scanners.orchestrator.SCANNERS", [_FakeScanner("s", 1.0, score=90)]):
+        with patch("app.scanners.orchestrator.SCANNERS",
+                   [_SlowScanner("s", 1.0, score=90, findings=[finding])]):
             results = await asyncio.gather(
                 rescan(),
                 rescan(),
@@ -724,14 +748,20 @@ class TestConcurrency:
         assert data["status"] == "completed"
         assert len(data["modules"]) == 1
         assert data["modules"][0]["name"] == "s"
+        # The single finding is persisted once, not duplicated by the second
+        # interleaved runner.
+        assert len(data["modules"][0]["findings"]) == 1
 
         # The unique constraint holds at the storage level too.
         async with _db.AsyncSessionLocal() as session:
             result = await session.execute(
-                select(ScanModule).where(ScanModule.scan_id == scan_id)
+                select(ScanModule)
+                .options(selectinload(ScanModule.findings))
+                .where(ScanModule.scan_id == scan_id)
             )
             modules = result.scalars().all()
         assert len(modules) == 1
+        assert len(modules[0].findings) == 1
 
     async def test_concurrent_create_different_domains(self, client):
         """Créations simultanées sur des domaines différents ne s'interfèrent pas."""
