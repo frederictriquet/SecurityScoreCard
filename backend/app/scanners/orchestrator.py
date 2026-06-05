@@ -1,7 +1,8 @@
 import asyncio
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.database import AsyncSessionLocal
 from app.models import Scan, ScanModule, Finding
@@ -43,10 +44,18 @@ async def run_single_scanner(scanner: BaseScanner, domain: str, scan_id: str) ->
                 ScanModule.name == scanner.name,
             )
         )
-        module = result.scalar_one()
+        # (scan_id, name) is unique, so this matches at most one module. A
+        # concurrent rescan may have deleted it in the meantime: there is nothing
+        # to run, so return instead of raising NoResultFound.
+        module = result.scalar_one_or_none()
+        if module is None:
+            return
 
         module.status = "running"
         module.started_at = datetime.now(timezone.utc)
+        # Drop findings left by a previous run of this module so a rescan replaces
+        # them instead of accumulating duplicates.
+        await session.execute(delete(Finding).where(Finding.module_id == module.id))
         await session.commit()
 
         try:
@@ -87,13 +96,21 @@ async def run_scan(scan_id: str, domain: str) -> None:
         scan.status = "running"
         scan.started_at = datetime.now(timezone.utc)
 
+        # Create one module per scanner idempotently. A concurrent rescan may be
+        # recreating the same (scan_id, name) rows at the same time; the unique
+        # constraint turns the duplicate INSERT into a no-op instead of letting
+        # both runs succeed and leave duplicated modules behind.
         for scanner in SCANNERS:
-            session.add(ScanModule(
-                scan_id=scan_id,
-                name=scanner.name,
-                weight=scanner.weight,
-                status="pending",
-            ))
+            await session.execute(
+                sqlite_insert(ScanModule)
+                .values(
+                    scan_id=scan_id,
+                    name=scanner.name,
+                    weight=scanner.weight,
+                    status="pending",
+                )
+                .on_conflict_do_nothing(index_elements=["scan_id", "name"])
+            )
 
         await session.commit()
 

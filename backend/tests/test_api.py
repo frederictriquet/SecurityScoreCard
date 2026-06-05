@@ -683,16 +683,15 @@ class TestRateLimiting:
 
 
 class TestConcurrency:
-    async def test_concurrent_rescans_race_condition(self, client):
-        """Deux rescans simultanés révèlent une race condition connue.
+    async def test_concurrent_rescans_stay_consistent(self, client):
+        """Two simultaneous rescans of the same scan must not corrupt it.
 
-        L'orchestrateur utilise scalar_one() pour retrouver le module par
-        (scan_id, name), mais deux rescans concurrents créent des modules
-        en double, ce qui peut causer MultipleResultsFound ou NoResultFound.
-
-        Ce test documente le comportement : la concurrence provoque des erreurs
-        DB au niveau de l'orchestrateur (background task), mais les endpoints
-        HTTP retournent 200 car le rescan reset est fait AVANT le background task.
+        The orchestrator looks up each module by ``(scan_id, name)``. Without the
+        unique constraint, two overlapping rescans created duplicate modules,
+        which crashed the lookup (``MultipleResultsFound``), or deleted a module
+        mid-flight (``NoResultFound``). With the constraint plus idempotent module
+        creation and a tolerant lookup, the concurrent run converges to exactly
+        one module per scanner, with no unhandled exception.
         """
         scanners = [_FakeScanner("s", 1.0, score=80)]
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
@@ -712,23 +711,27 @@ class TestConcurrency:
                 return_exceptions=True,
             )
 
-        # Les deux endpoints HTTP retournent 200 (le reset est synchrone),
-        # mais les background tasks concurrentes peuvent échouer en DB.
-        # On vérifie qu'il n'y a pas de crash non géré (pas d'exception Python propagée).
+        # No exception escapes from either request (background tasks included).
         for r in results:
-            # ``gather(return_exceptions=True)`` yields ``BaseException`` on
-            # failure; narrowing on it lets the else branch see the Response.
-            if isinstance(r, BaseException):
-                # Exceptions SQLAlchemy dans les background tasks sont acceptables
-                # car elles sont capturées par Starlette et ne crashent pas le serveur
-                assert "row" in str(r).lower() or "result" in str(r).lower(), \
-                    f"Unexpected exception type: {r}"
-            else:
-                assert r.status_code == 200
+            assert not isinstance(r, BaseException), f"Unexpected exception: {r!r}"
+            assert r.status_code == 200
 
-        # Le scan existe toujours et est accessible
+        # The scan is still accessible and holds exactly one module — the race no
+        # longer leaves duplicated ``(scan_id, "s")`` rows behind.
         get_resp = await client.get(f"/api/scans/{scan_id}")
         assert get_resp.status_code == 200
+        data = get_resp.json()
+        assert data["status"] == "completed"
+        assert len(data["modules"]) == 1
+        assert data["modules"][0]["name"] == "s"
+
+        # The unique constraint holds at the storage level too.
+        async with _db.AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(ScanModule).where(ScanModule.scan_id == scan_id)
+            )
+            modules = result.scalars().all()
+        assert len(modules) == 1
 
     async def test_concurrent_create_different_domains(self, client):
         """Créations simultanées sur des domaines différents ne s'interfèrent pas."""

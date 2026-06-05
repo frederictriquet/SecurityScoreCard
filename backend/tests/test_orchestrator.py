@@ -735,3 +735,65 @@ class TestRunScanFindingsPersistence:
             await run_scan(scan_id, "custom-domain.org")
 
         assert received_domain == "custom-domain.org"
+
+
+# ===================================================================
+# run_scan — concurrency safety (orchestrator-rescan-race)
+# ===================================================================
+
+
+class TestRunScanConcurrency:
+    async def test_concurrent_run_scans_same_scan_no_duplicates(self):
+        """Two overlapping run_scan calls on the same scan stay consistent.
+
+        This reproduces the production race: a rescan deletes and recreates the
+        modules while another run is still in flight. Without the fix the second
+        run created duplicate ``(scan_id, name)`` modules and
+        ``run_single_scanner`` crashed on ``scalar_one()``. With the unique
+        constraint plus idempotent module creation, the two runs converge to
+        exactly one module per scanner and never raise.
+        """
+        import asyncio
+
+        scan_id = await _create_scan_in_db()
+        fake_scanners = [
+            FakeScanner("alpha", 0.5, score=90),
+            FakeScanner("beta", 0.5, score=70),
+        ]
+
+        with patch("app.scanners.orchestrator.SCANNERS", fake_scanners):
+            results = await asyncio.gather(
+                run_scan(scan_id, "example.com"),
+                run_scan(scan_id, "example.com"),
+                return_exceptions=True,
+            )
+
+        # Neither concurrent run raised (no MultipleResultsFound / NoResultFound).
+        for r in results:
+            assert not isinstance(r, BaseException), f"Unexpected exception: {r!r}"
+
+        modules = await _get_modules(scan_id)
+        # Exactly one module per scanner — the constraint prevents duplicates.
+        names = sorted(m.name for m in modules)
+        assert names == ["alpha", "beta"]
+        for m in modules:
+            assert m.status == "completed"
+
+        scan = await _get_scan_full(scan_id)
+        assert scan.status == "completed"
+
+    async def test_single_run_scan_still_nominal(self):
+        """The non-concurrent path is unaffected by the idempotent creation."""
+        scan_id = await _create_scan_in_db()
+        fake_scanners = [
+            FakeScanner("alpha", 0.6, score=100),
+            FakeScanner("beta", 0.4, score=50),
+        ]
+        with patch("app.scanners.orchestrator.SCANNERS", fake_scanners):
+            await run_scan(scan_id, "example.com")
+
+        modules = await _get_modules(scan_id)
+        assert sorted(m.name for m in modules) == ["alpha", "beta"]
+        scan = await _get_scan_full(scan_id)
+        assert scan.status == "completed"
+        assert scan.score == 80
