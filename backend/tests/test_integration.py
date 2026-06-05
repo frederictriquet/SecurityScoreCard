@@ -327,7 +327,7 @@ class TestFullIntegration:
         titles = [f["title"] for f in all_findings]
 
         # Expired cert → critical finding
-        assert any("expiré" in t.lower() for t in titles), f"No expired cert finding in {titles}"
+        assert any("expired" in t.lower() for t in titles), f"No expired cert finding in {titles}"
         # Missing SPF → finding
         assert any("SPF" in t for t in titles), f"No SPF finding in {titles}"
         # Missing security headers → findings
@@ -590,16 +590,16 @@ class TestFullIntegration:
         # Find the "Certificat TLS expiré" finding
         tls_module = next(m for m in data["modules"] if m["name"] == "tls")
         expired_finding = next(
-            (f for f in tls_module["findings"] if "expiré" in f["title"].lower()),
+            (f for f in tls_module["findings"] if "expired" in f["title"].lower()),
             None,
         )
 
         assert expired_finding is not None
         assert expired_finding["severity"] == "critical"
-        assert expired_finding["title"] == "Certificat TLS expiré"
-        assert "expiré" in expired_finding["description"]
+        assert expired_finding["title"] == "TLS certificate expired"
+        assert "expired" in expired_finding["description"]
         assert expired_finding["remediation"] is not None
-        assert "renouveler" in expired_finding["remediation"].lower()
+        assert "renew" in expired_finding["remediation"].lower()
 
     async def test_weighted_score_calculation_end_to_end(self, client):
         """

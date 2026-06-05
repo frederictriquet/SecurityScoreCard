@@ -43,7 +43,7 @@ class TestSpf:
         await scanner._check_spf("example.com", resolver, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "SPF manquant" in findings[0].title
+        assert "SPF missing" in findings[0].title
 
     async def test_spf_duplicate_records(self, scanner, resolver):
         resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
@@ -54,7 +54,7 @@ class TestSpf:
         await scanner._check_spf("example.com", resolver, findings)
         assert len(findings) == 1
         assert findings[0].severity == "medium"
-        assert "dupliqué" in findings[0].title
+        assert "duplicated" in findings[0].title
 
     async def test_spf_plus_all_critical(self, scanner, resolver):
         resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
@@ -72,7 +72,7 @@ class TestSpf:
         await scanner._check_spf("example.com", resolver, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "impossible de résoudre" in findings[0].title.lower()
+        assert "unable to resolve" in findings[0].title.lower()
 
 
 # ===================================================================
@@ -115,7 +115,7 @@ class TestDmarc:
         await scanner._check_dmarc("example.com", resolver, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "DMARC manquant" in findings[0].title
+        assert "DMARC missing" in findings[0].title
 
     async def test_dmarc_nxdomain(self, scanner, resolver):
         resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
@@ -613,7 +613,7 @@ class TestNsRedundancy:
         await scanner._check_ns_redundancy("example.com", resolver, findings)
         assert len(findings) == 1
         assert findings[0].severity == "medium"
-        assert "1 serveur" in findings[0].title
+        assert "1 server" in findings[0].title
 
     async def test_two_ns_different_networks(self, scanner, resolver):
         """2 NS on different /24 → no finding."""
@@ -630,7 +630,7 @@ class TestNsRedundancy:
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
         # No finding because the /24 networks are different
-        ns_findings = [f for f in findings if "NS" in f.title or "serveur" in f.title.lower()]
+        ns_findings = [f for f in findings if "NS" in f.title or "server" in f.title.lower()]
         assert len(ns_findings) == 0
 
     async def test_two_ns_same_network(self, scanner, resolver):
@@ -648,7 +648,7 @@ class TestNsRedundancy:
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
         assert len(findings) == 1
-        assert "même réseau" in findings[0].title.lower() or "même sous-réseau" in findings[0].description.lower()
+        assert "same network" in findings[0].title.lower() or "same /24 subnet" in findings[0].description.lower()
 
     async def test_ns_resolve_fails(self, scanner, resolver):
         """Cannot resolve NS → no finding, no crash."""
@@ -670,7 +670,7 @@ class TestNsRedundancy:
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
         # No "same network" finding because we could not resolve the IPs
-        network_findings = [f for f in findings if "réseau" in f.title.lower() or "réseau" in f.description.lower()]
+        network_findings = [f for f in findings if "network" in f.title.lower() or "network" in f.description.lower()]
         assert len(network_findings) == 0
 
 
@@ -715,7 +715,7 @@ class TestIdnHomograph:
         await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "scripts mélangés" in findings[0].title
+        assert "mixed scripts" in findings[0].title
         assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
 
     async def test_whole_script_confusable_medium(self, scanner):
@@ -734,7 +734,7 @@ class TestIdnHomograph:
         await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "info"
-        assert "internationalisé" in findings[0].title
+        assert "Internationalized" in findings[0].title
 
     async def test_japanese_han_hiragana_not_high(self, scanner):
         """« 東京めがね.jp » mixes Han + Hiragana ({CJK, HIRAGANA}): this is a
@@ -744,7 +744,7 @@ class TestIdnHomograph:
         await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
         assert findings[0].severity == "info"
-        assert "internationalisé" in findings[0].title
+        assert "Internationalized" in findings[0].title
 
     async def test_japanese_katakana_prolonged_mark_not_high(self, scanner):
         """« ソニー » (katakana + prolonged sound mark « ー », hence
@@ -828,6 +828,6 @@ class TestIdnHomograph:
             mock_instance.nameservers = ["8.8.8.8"]
             result = await scanner.scan(domain)
 
-        homograph = [f for f in result.findings if "homographe" in f.title.lower()]
+        homograph = [f for f in result.findings if "homograph" in f.title.lower()]
         assert len(homograph) == 1
         assert homograph[0].severity == "high"

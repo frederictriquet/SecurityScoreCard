@@ -257,7 +257,7 @@ class TestSubdomainsFullScan:
             result = await scanner.scan("example.com")
             assert len(result.findings) == 1
             assert result.findings[0].severity == "info"
-            assert "Aucun sous-domaine" in result.findings[0].title
+            assert "No subdomain" in result.findings[0].title
 
     async def test_subdomains_found_listed(self, scanner):
         with (
@@ -268,7 +268,7 @@ class TestSubdomainsFullScan:
             result = await scanner.scan("example.com")
             info_findings = [f for f in result.findings if f.severity == "info"]
             assert len(info_findings) >= 1
-            assert "2 sous-domaine" in info_findings[0].title
+            assert "2 subdomain" in info_findings[0].title
 
     async def test_more_than_20_subdomains_truncated(self, scanner):
         with (
@@ -279,4 +279,4 @@ class TestSubdomainsFullScan:
             mock_fetch.return_value = subs
             result = await scanner.scan("example.com")
             info_findings = [f for f in result.findings if f.severity == "info"]
-            assert "et plus..." in info_findings[0].description
+            assert "and more..." in info_findings[0].description

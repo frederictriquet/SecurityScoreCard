@@ -111,7 +111,7 @@ def build_homograph_explanation(raw: str) -> str | None:
 
     Used by the validator on the REJECT path: when a non-ASCII domain could not be
     validated, we want to tell the user *why* it is a problem rather than
-    "Domaine invalide".
+    "Invalid domain".
 
     `raw` is the domain as submitted (visible Unicode form), before Punycode
     conversion. The analysis is done LABEL BY LABEL (separated by dots), like the
@@ -157,8 +157,8 @@ def build_homograph_explanation(raw: str) -> str | None:
             try:
                 name = unicodedata.name(c)
             except ValueError:
-                name = "caractère non nommé"
-            suspects.append(f"« {c} » ({name}, U+{ord(c):04X})")
+                name = "unnamed character"
+            suspects.append(f'"{c}" ({name}, U+{ord(c):04X})')
 
     # Real Punycode form (best-effort): reveals the gap with the imitated domain.
     try:
@@ -167,24 +167,23 @@ def build_homograph_explanation(raw: str) -> str | None:
         puny = None
 
     parts = [
-        f"Domaine homographe détecté : « {raw} » contient un ou plusieurs "
-        "caractères non latins qui imitent visuellement des lettres ASCII.",
-        f"Caractère(s) suspect(s) : {', '.join(suspects)}.",
+        f'Homograph domain detected: "{raw}" contains one or more '
+        "non-Latin characters that visually mimic ASCII letters.",
+        f"Suspicious character(s): {', '.join(suspects)}.",
     ]
     if puny:
         parts.append(
-            f"Sous sa forme réelle (Punycode), ce domaine s'écrit « {puny} », "
-            "ce qui révèle qu'il diffère du domaine latin qu'il imite."
+            f'In its real form (Punycode), this domain is written "{puny}", '
+            "which reveals that it differs from the Latin domain it imitates."
         )
     parts.append(
-        "Il s'agit d'une attaque homographe (IDN spoofing) : un attaquant "
-        "enregistre un domaine d'apparence quasi identique à celui d'un site "
-        "légitime (banque, messagerie, réseau social) afin de vous faire croire "
-        "que vous êtes au bon endroit et de vous soutirer identifiants ou "
-        "paiements."
+        "This is a homograph attack (IDN spoofing): an attacker registers a "
+        "domain that looks almost identical to that of a legitimate site "
+        "(bank, email provider, social network) to make you believe you are "
+        "in the right place and to steal your credentials or payments."
     )
     parts.append(
-        "Ne poursuivez que si vous êtes certain de l'authenticité de ce domaine ; "
-        "dans le doute, saisissez-le manuellement depuis une source de confiance."
+        "Only proceed if you are certain of this domain's authenticity; "
+        "when in doubt, enter it manually from a trusted source."
     )
     return " ".join(parts)

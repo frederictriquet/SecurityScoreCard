@@ -50,7 +50,7 @@ class TestInfiniteRedirect:
         assert result.score < 100
         assert len(result.findings) >= 1
         assert result.findings[0].severity == "high"
-        assert "Impossible" in result.findings[0].title
+        assert "Unable" in result.findings[0].title
 
     async def test_redirect_loop_does_not_hang(self):
         """Verify that the httpx timeout protects against slow loops."""
@@ -156,11 +156,11 @@ class TestMassiveSubdomains:
             result = await scanner.scan("example.com")
 
         # Info finding with the total count
-        info = [f for f in result.findings if "5000" in f.title or "sous-domaine" in f.title]
+        info = [f for f in result.findings if "5000" in f.title or "subdomain" in f.title]
         assert len(info) >= 1
         # The description only lists 20 subdomains
         desc = info[0].description
-        assert "et plus" in desc
+        assert "and more" in desc
 
     async def test_crt_sh_returns_duplicates_deduplicated(self):
         """crt.sh returns the same subdomain several times — deduplicated."""
@@ -275,7 +275,7 @@ class TestDnsPartialTimeout:
         assert len(spf_findings) >= 1
 
         # DMARC did NOT fail (no missing-DMARC finding)
-        dmarc_missing = [f for f in result.findings if "DMARC manquant" in f.title]
+        dmarc_missing = [f for f in result.findings if "DMARC missing" in f.title]
         assert len(dmarc_missing) == 0
 
     async def test_all_dns_checks_timeout_still_returns_result(self):
@@ -366,7 +366,7 @@ class TestHIBPMalformedResponse:
             result = await scanner.scan("example.com")
 
         assert isinstance(result, ScanResult)
-        conn_findings = [f for f in result.findings if "connexion" in f.title.lower()]
+        conn_findings = [f for f in result.findings if "connection" in f.title.lower()]
         assert len(conn_findings) == 1
 
 
@@ -513,7 +513,7 @@ class TestTlsNetworkErrors:
             result = await scanner.scan("nonexistent.invalid")
 
         assert result.findings[0].severity == "critical"
-        assert "impossible" in result.findings[0].title.lower()
+        assert "failed" in result.findings[0].title.lower()
 
     async def test_port_443_closed(self):
         """Port 443 is closed → ConnectionRefusedError → critical finding."""

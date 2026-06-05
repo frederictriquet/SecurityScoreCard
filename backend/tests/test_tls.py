@@ -48,7 +48,7 @@ class TestCertExpiry:
         _check_cert_expiry(not_after, "example.com", findings)
         assert len(findings) == 1
         assert findings[0].severity == "critical"
-        assert "expiré" in findings[0].title.lower()
+        assert "expired" in findings[0].title.lower()
 
     def test_expires_in_less_than_15_days(self):
         not_after = datetime.now(timezone.utc) + timedelta(days=10)
@@ -57,7 +57,7 @@ class TestCertExpiry:
         assert len(findings) == 1
         assert findings[0].severity == "critical"
         # The exact number of days may vary by ±1 depending on execution time
-        assert "jour" in findings[0].title
+        assert "day" in findings[0].title
 
     def test_expires_in_less_than_30_days(self):
         not_after = datetime.now(timezone.utc) + timedelta(days=20)
@@ -65,7 +65,7 @@ class TestCertExpiry:
         _check_cert_expiry(not_after, "example.com", findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "jours" in findings[0].title
+        assert "days" in findings[0].title
 
     def test_expires_in_exactly_15_days(self):
         """15 days remaining: remaining.days may be 14 (< 15 → critical) or 15 (< 30 → high)."""
@@ -174,7 +174,7 @@ class TestSelfSigned:
         _check_self_signed(cert_info, "example.com", findings)
         assert len(findings) == 1
         assert findings[0].severity == "critical"
-        assert "auto-signé" in findings[0].title
+        assert "self-signed" in findings[0].title.lower()
 
     def test_empty_issuer_no_false_positive(self):
         cert_info = make_cert_info(issuer_cn="", subject_cn="example.com")
@@ -320,7 +320,7 @@ class TestTlsFullScan:
             assert result.score == 70  # 100 - 30 (critical)
             assert len(result.findings) == 1
             assert result.findings[0].severity == "critical"
-            assert "Connexion TLS impossible" in result.findings[0].title
+            assert "TLS connection failed" in result.findings[0].title
 
     async def test_healthy_cert_returns_100(self, scanner):
         with patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock:
@@ -816,7 +816,7 @@ class TestCheckWildcardCert:
         _check_wildcard_cert({"sans": ["*.com"]}, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
-        assert "large" in findings[0].title.lower() or "excessivement" in findings[0].title.lower()
+        assert "broad" in findings[0].title.lower() or "wildcard" in findings[0].title.lower()
 
     def test_multiple_wildcards(self):
         """Multiple wildcards → a single medium finding."""

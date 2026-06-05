@@ -53,31 +53,31 @@ class DnsScanner(BaseScanner):
             if not spf_records:
                 findings.append(FindingData(
                     severity="high",
-                    title="SPF manquant",
-                    description=f"Aucun enregistrement SPF trouvé pour {domain}.",
-                    remediation="Ajouter un enregistrement TXT : v=spf1 include:... ~all",
+                    title="SPF missing",
+                    description=f"No SPF record found for {domain}.",
+                    remediation="Add a TXT record: v=spf1 include:... ~all",
                 ))
             elif len(spf_records) > 1:
                 findings.append(FindingData(
                     severity="medium",
-                    title="SPF dupliqué",
-                    description="Plusieurs enregistrements SPF détectés. Seul le premier est utilisé.",
-                    remediation="Fusionner en un seul enregistrement SPF.",
+                    title="SPF duplicated",
+                    description="Multiple SPF records detected. Only the first one is used.",
+                    remediation="Merge into a single SPF record.",
                 ))
             else:
                 spf = spf_records[0]
                 if "+all" in spf:
                     findings.append(FindingData(
                         severity="critical",
-                        title="SPF trop permissif (+all)",
-                        description="La politique +all autorise n'importe qui à envoyer des emails au nom du domaine.",
-                        remediation="Remplacer +all par ~all ou -all.",
+                        title="SPF too permissive (+all)",
+                        description="The +all policy allows anyone to send emails on behalf of the domain.",
+                        remediation="Replace +all with ~all or -all.",
                     ))
         except Exception:
             findings.append(FindingData(
                 severity="high",
-                title="SPF : impossible de résoudre",
-                description=f"La requête DNS TXT pour {domain} a échoué.",
+                title="SPF: unable to resolve",
+                description=f"The DNS TXT query for {domain} failed.",
             ))
 
     async def _check_dmarc(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -87,25 +87,25 @@ class DnsScanner(BaseScanner):
             if not records:
                 findings.append(FindingData(
                     severity="high",
-                    title="DMARC manquant",
-                    description=f"Aucun enregistrement DMARC trouvé sur _dmarc.{domain}.",
-                    remediation='Ajouter : v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
+                    title="DMARC missing",
+                    description=f"No DMARC record found at _dmarc.{domain}.",
+                    remediation='Add: v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
                 ))
             else:
                 dmarc = records[0]
                 if "p=none" in dmarc:
                     findings.append(FindingData(
                         severity="medium",
-                        title="DMARC en mode monitoring (p=none)",
-                        description="La politique none ne protège pas contre le spoofing, elle ne fait que reporter.",
-                        remediation="Passer à p=quarantine ou p=reject une fois les rapports analysés.",
+                        title="DMARC in monitoring mode (p=none)",
+                        description="The none policy does not protect against spoofing, it only reports.",
+                        remediation="Move to p=quarantine or p=reject once the reports have been analyzed.",
                     ))
         except dns.resolver.NXDOMAIN:
             findings.append(FindingData(
                 severity="high",
-                title="DMARC manquant",
-                description=f"Aucun enregistrement DMARC trouvé sur _dmarc.{domain}.",
-                remediation='Ajouter : v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
+                title="DMARC missing",
+                description=f"No DMARC record found at _dmarc.{domain}.",
+                remediation='Add: v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
             ))
         except Exception:
             pass
@@ -123,9 +123,9 @@ class DnsScanner(BaseScanner):
         if not found:
             findings.append(FindingData(
                 severity="medium",
-                title="DKIM non détecté",
-                description="Aucun sélecteur DKIM courant trouvé. DKIM peut être configuré avec un sélecteur non standard.",
-                remediation="Vérifier que DKIM est activé auprès du fournisseur email et publier la clé publique.",
+                title="DKIM not detected",
+                description="No common DKIM selector found. DKIM may be configured with a non-standard selector.",
+                remediation="Check that DKIM is enabled with the email provider and publish the public key.",
             ))
 
     async def _check_dnssec(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -136,9 +136,9 @@ class DnsScanner(BaseScanner):
         except Exception:
             findings.append(FindingData(
                 severity="low",
-                title="DNSSEC non activé",
-                description="Le domaine n'utilise pas DNSSEC pour signer ses enregistrements DNS.",
-                remediation="Activer DNSSEC auprès de votre registrar.",
+                title="DNSSEC not enabled",
+                description="The domain does not use DNSSEC to sign its DNS records.",
+                remediation="Enable DNSSEC with your registrar.",
             ))
 
     async def _check_mx(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -147,8 +147,8 @@ class DnsScanner(BaseScanner):
         except Exception:
             findings.append(FindingData(
                 severity="info",
-                title="Pas d'enregistrement MX",
-                description="Le domaine ne semble pas recevoir d'emails (absence de MX).",
+                title="No MX record",
+                description="The domain does not appear to receive emails (no MX record).",
             ))
 
     # --- Phase 1: new checks ---
@@ -159,9 +159,9 @@ class DnsScanner(BaseScanner):
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
             findings.append(FindingData(
                 severity="medium",
-                title="CAA manquant",
-                description="Aucun enregistrement CAA. N'importe quelle autorité de certification peut émettre un certificat.",
-                remediation='Ajouter un enregistrement CAA : 0 issue "letsencrypt.org" (adapter selon votre CA).',
+                title="CAA missing",
+                description="No CAA record. Any certificate authority can issue a certificate.",
+                remediation='Add a CAA record: 0 issue "letsencrypt.org" (adapt to your CA).',
             ))
         except Exception:
             pass
@@ -175,9 +175,9 @@ class DnsScanner(BaseScanner):
         except Exception:
             findings.append(FindingData(
                 severity="low",
-                title="MTA-STS non configuré",
-                description="MTA-STS n'est pas activé. Les emails en transit peuvent être interceptés (downgrade STARTTLS).",
-                remediation="Publier un enregistrement TXT _mta-sts et héberger la policy sur https://mta-sts.{domain}.",
+                title="MTA-STS not configured",
+                description="MTA-STS is not enabled. Emails in transit can be intercepted (STARTTLS downgrade).",
+                remediation="Publish a TXT record _mta-sts and host the policy at https://mta-sts.{domain}.",
             ))
 
     async def _check_dane(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -196,9 +196,9 @@ class DnsScanner(BaseScanner):
 
         findings.append(FindingData(
             severity="low",
-            title="DANE/TLSA non configuré",
-            description="Aucun enregistrement TLSA pour les serveurs mail. DANE renforce la sécurité du transport email.",
-            remediation="Publier des enregistrements TLSA pour _25._tcp.{mx_host} (nécessite DNSSEC).",
+            title="DANE/TLSA not configured",
+            description="No TLSA record for the mail servers. DANE strengthens the security of email transport.",
+            remediation="Publish TLSA records for _25._tcp.{mx_host} (requires DNSSEC).",
         ))
 
     async def _check_spf_lookups(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -222,9 +222,9 @@ class DnsScanner(BaseScanner):
             if count > 10:
                 findings.append(FindingData(
                     severity="medium",
-                    title=f"SPF : trop de lookups DNS ({count}/10 max)",
-                    description="Le RFC 7208 limite à 10 lookups DNS. Au-delà, le SPF est ignoré par certains serveurs.",
-                    remediation="Réduire les includes ou utiliser le SPF flattening.",
+                    title=f"SPF: too many DNS lookups ({count}/10 max)",
+                    description="RFC 7208 limits to 10 DNS lookups. Beyond that, SPF is ignored by some servers.",
+                    remediation="Reduce the includes or use SPF flattening.",
                 ))
         except Exception:
             pass
@@ -240,9 +240,9 @@ class DnsScanner(BaseScanner):
         except Exception:
             findings.append(FindingData(
                 severity="low",
-                title="TLS-RPT non configuré",
-                description="Aucun enregistrement TLS-RPT (_smtp._tls). Les échecs de transport TLS email ne sont pas reportés.",
-                remediation="Ajouter : _smtp._tls TXT \"v=TLSRPTv1; rua=mailto:tls-reports@votre-domaine\"",
+                title="TLS-RPT not configured",
+                description="No TLS-RPT record (_smtp._tls). Email TLS transport failures are not reported.",
+                remediation="Add: _smtp._tls TXT \"v=TLSRPTv1; rua=mailto:tls-reports@your-domain\"",
             ))
 
     async def _check_bimi(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -254,9 +254,9 @@ class DnsScanner(BaseScanner):
         except Exception:
             findings.append(FindingData(
                 severity="info",
-                title="BIMI non configuré",
-                description="Aucun enregistrement BIMI. Le logo de marque ne s'affichera pas dans les clients email compatibles.",
-                remediation="Publier : default._bimi TXT \"v=BIMI1; l=<URL du logo SVG>\" (nécessite DMARC p=quarantine ou reject).",
+                title="BIMI not configured",
+                description="No BIMI record. The brand logo will not be displayed in compatible email clients.",
+                remediation="Publish: default._bimi TXT \"v=BIMI1; l=<SVG logo URL>\" (requires DMARC p=quarantine or reject).",
             ))
 
     async def _check_axfr(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -276,9 +276,9 @@ class DnsScanner(BaseScanner):
                 if result:
                     findings.append(FindingData(
                         severity="critical",
-                        title=f"Transfert de zone DNS possible (AXFR) via {ns_host}",
-                        description="Le serveur DNS autorise le transfert de zone complet. Un attaquant peut obtenir tous les enregistrements DNS du domaine.",
-                        remediation="Restreindre les transferts de zone (AXFR) aux serveurs DNS secondaires autorisés.",
+                        title=f"DNS zone transfer possible (AXFR) via {ns_host}",
+                        description="The DNS server allows a full zone transfer. An attacker can obtain all of the domain's DNS records.",
+                        remediation="Restrict zone transfers (AXFR) to authorized secondary DNS servers.",
                     ))
                     return
             except Exception:
@@ -290,9 +290,9 @@ class DnsScanner(BaseScanner):
             await resolver.resolve(f"{random_sub}.{domain}", "A")
             findings.append(FindingData(
                 severity="medium",
-                title="Wildcard DNS détecté",
-                description="Un enregistrement wildcard (*.domain) est configuré. Tous les sous-domaines, même inexistants, résolvent une adresse.",
-                remediation="Supprimer le wildcard DNS sauf si nécessaire. Cela peut masquer des sous-domaines mal configurés.",
+                title="Wildcard DNS detected",
+                description="A wildcard record (*.domain) is configured. All subdomains, even nonexistent ones, resolve to an address.",
+                remediation="Remove the wildcard DNS unless necessary. It can mask misconfigured subdomains.",
             ))
         except Exception:
             pass
@@ -307,9 +307,9 @@ class DnsScanner(BaseScanner):
         if len(ns_hosts) < 2:
             findings.append(FindingData(
                 severity="medium",
-                title=f"NS insuffisants ({len(ns_hosts)} serveur)",
-                description="Le domaine n'a qu'un seul serveur DNS. En cas de panne, le domaine devient inaccessible.",
-                remediation="Configurer au moins 2 serveurs DNS sur des réseaux distincts.",
+                title=f"Insufficient NS ({len(ns_hosts)} server)",
+                description="The domain has only a single DNS server. In case of an outage, the domain becomes unreachable.",
+                remediation="Configure at least 2 DNS servers on distinct networks.",
             ))
             return
 
@@ -327,9 +327,9 @@ class DnsScanner(BaseScanner):
             if len(networks) < 2:
                 findings.append(FindingData(
                     severity="medium",
-                    title="Serveurs NS sur le même réseau",
-                    description=f"Les {len(ns_ips)} serveurs DNS sont sur le même sous-réseau /24. Une panne réseau les affecterait tous.",
-                    remediation="Répartir les serveurs DNS sur des réseaux physiques différents.",
+                    title="NS servers on the same network",
+                    description=f"The {len(ns_ips)} DNS servers are on the same /24 subnet. A network outage would affect them all.",
+                    remediation="Spread the DNS servers across different physical networks.",
                 ))
 
 
@@ -386,35 +386,35 @@ class DnsScanner(BaseScanner):
             if len(scripts) > 1 and not is_legit_multiscript(scripts):
                 findings.append(FindingData(
                     severity="high",
-                    title="Domaine homographe : scripts mélangés",
+                    title="Homograph domain: mixed scripts",
                     description=(
-                        f"Le label « {unicode_label} » ({ascii_label}) mélange plusieurs "
-                        f"systèmes d'écriture ({', '.join(sorted(scripts))}). C'est la "
-                        "signature d'une attaque homographe : des caractères d'apparence "
-                        "identique à des lettres latines imitent un domaine légitime."
+                        f"The label \"{unicode_label}\" ({ascii_label}) mixes several "
+                        f"writing systems ({', '.join(sorted(scripts))}). This is the "
+                        "signature of a homograph attack: characters that look "
+                        "identical to Latin letters imitate a legitimate domain."
                     ),
-                    remediation="Vérifier l'authenticité du domaine et comparer avec la forme Punycode (xn--).",
+                    remediation="Verify the authenticity of the domain and compare it with the Punycode form (xn--).",
                     raw_data=raw,
                 ))
             elif alpha and "LATIN" not in scripts and all(c in CONFUSABLE_CHARS for c in alpha):
                 findings.append(FindingData(
                     severity="medium",
-                    title="Domaine homographe potentiel (caractères confusables)",
+                    title="Potential homograph domain (confusable characters)",
                     description=(
-                        f"Le label « {unicode_label} » ({ascii_label}) est entièrement composé "
-                        "de caractères non latins d'apparence identique à des lettres latines. "
-                        "Il peut usurper visuellement un domaine ASCII légitime."
+                        f"The label \"{unicode_label}\" ({ascii_label}) is entirely composed "
+                        "of non-Latin characters that look identical to Latin letters. "
+                        "It can visually spoof a legitimate ASCII domain."
                     ),
-                    remediation="Vérifier l'authenticité du domaine et comparer avec la forme Punycode (xn--).",
+                    remediation="Verify the authenticity of the domain and compare it with the Punycode form (xn--).",
                     raw_data=raw,
                 ))
             else:
                 findings.append(FindingData(
                     severity="info",
-                    title="Domaine internationalisé (IDN)",
+                    title="Internationalized domain (IDN)",
                     description=(
-                        f"Le label « {unicode_label} » ({ascii_label}) utilise des caractères "
-                        "non ASCII (IDN). Aucun mélange de scripts suspect détecté."
+                        f"The label \"{unicode_label}\" ({ascii_label}) uses non-ASCII "
+                        "characters (IDN). No suspicious script mix detected."
                     ),
                     raw_data=raw,
                 ))

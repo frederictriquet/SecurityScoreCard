@@ -37,9 +37,9 @@ class TlsScanner(BaseScanner):
         except Exception as exc:
             findings.append(FindingData(
                 severity="critical",
-                title="Connexion TLS impossible",
-                description=f"Impossible d'établir une connexion TLS avec {domain} : {exc}",
-                remediation="Vérifier que le serveur supporte HTTPS et que le certificat est valide.",
+                title="TLS connection failed",
+                description=f"Unable to establish a TLS connection with {domain}: {exc}",
+                remediation="Check that the server supports HTTPS and that the certificate is valid.",
             ))
             return findings
 
@@ -157,23 +157,23 @@ def _check_cert_expiry(not_after: datetime, domain: str, findings: list) -> None
     if remaining.days < 0:
         findings.append(FindingData(
             severity="critical",
-            title="Certificat TLS expiré",
-            description=f"Le certificat a expiré le {not_after.strftime('%Y-%m-%d')}.",
-            remediation="Renouveler immédiatement le certificat (Let's Encrypt, acme.sh...).",
+            title="TLS certificate expired",
+            description=f"The certificate expired on {not_after.strftime('%Y-%m-%d')}.",
+            remediation="Renew the certificate immediately (Let's Encrypt, acme.sh...).",
         ))
     elif remaining.days < 15:
         findings.append(FindingData(
             severity="critical",
-            title=f"Certificat expire dans {remaining.days} jour(s)",
-            description=f"Expiration imminente le {not_after.strftime('%Y-%m-%d')}.",
-            remediation="Renouveler le certificat en urgence.",
+            title=f"Certificate expires in {remaining.days} day(s)",
+            description=f"Imminent expiration on {not_after.strftime('%Y-%m-%d')}.",
+            remediation="Renew the certificate urgently.",
         ))
     elif remaining.days < 30:
         findings.append(FindingData(
             severity="high",
-            title=f"Certificat expire dans {remaining.days} jours",
-            description=f"Expiration le {not_after.strftime('%Y-%m-%d')}.",
-            remediation="Planifier le renouvellement du certificat.",
+            title=f"Certificate expires in {remaining.days} days",
+            description=f"Expiration on {not_after.strftime('%Y-%m-%d')}.",
+            remediation="Plan the certificate renewal.",
         ))
 
 
@@ -181,9 +181,9 @@ def _check_tls_version(protocol: str, findings: list) -> None:
     if any(weak in protocol for weak in ["SSLv2", "SSLv3", "TLSv1.0", "TLSv1.1"]):
         findings.append(FindingData(
             severity="high",
-            title=f"Protocole obsolète : {protocol}",
-            description=f"Le serveur utilise {protocol}, une version dépréciée et vulnérable.",
-            remediation="Désactiver TLS < 1.2 et privilégier TLS 1.3.",
+            title=f"Obsolete protocol: {protocol}",
+            description=f"The server uses {protocol}, a deprecated and vulnerable version.",
+            remediation="Disable TLS < 1.2 and prefer TLS 1.3.",
         ))
 
 
@@ -192,9 +192,9 @@ def _check_cipher(cipher: str, findings: list) -> None:
         if keyword in cipher.upper():
             findings.append(FindingData(
                 severity="high",
-                title=f"Cipher suite faible : {cipher}",
-                description=f"La suite de chiffrement négociée contient '{keyword}', considérée faible.",
-                remediation="Configurer le serveur pour n'accepter que des ciphers modernes (AES-GCM, ChaCha20).",
+                title=f"Weak cipher suite: {cipher}",
+                description=f"The negotiated encryption suite contains '{keyword}', considered weak.",
+                remediation="Configure the server to accept only modern ciphers (AES-GCM, ChaCha20).",
             ))
             break
 
@@ -203,9 +203,9 @@ def _check_self_signed(cert_info: dict, domain: str, findings: list) -> None:
     if cert_info["issuer_cn"] and cert_info["issuer_cn"] == cert_info["subject_cn"]:
         findings.append(FindingData(
             severity="critical",
-            title="Certificat auto-signé",
-            description="Le certificat est signé par lui-même, non reconnu par les navigateurs.",
-            remediation="Utiliser un certificat signé par une CA reconnue (Let's Encrypt est gratuit).",
+            title="Self-signed certificate",
+            description="The certificate is signed by itself, not recognized by browsers.",
+            remediation="Use a certificate signed by a recognized CA (Let's Encrypt is free).",
         ))
 
 
@@ -221,16 +221,16 @@ def _check_key_size(cert_info: dict, findings: list) -> None:
     if key_type == "RSA" and key_size < 2048:
         findings.append(FindingData(
             severity="high",
-            title=f"Clé RSA trop courte ({key_size} bits)",
-            description="Les clés RSA inférieures à 2048 bits sont considérées faibles et cassables.",
-            remediation="Régénérer le certificat avec une clé RSA de 2048 bits minimum (4096 recommandé).",
+            title=f"RSA key too short ({key_size} bits)",
+            description="RSA keys below 2048 bits are considered weak and breakable.",
+            remediation="Regenerate the certificate with an RSA key of at least 2048 bits (4096 recommended).",
         ))
     elif key_type == "EC" and key_size < 256:
         findings.append(FindingData(
             severity="high",
-            title=f"Clé ECC trop courte ({key_size} bits)",
-            description="Les clés ECC inférieures à 256 bits sont considérées faibles.",
-            remediation="Régénérer le certificat avec une courbe P-256 minimum.",
+            title=f"ECC key too short ({key_size} bits)",
+            description="ECC keys below 256 bits are considered weak.",
+            remediation="Regenerate the certificate with a P-256 curve minimum.",
         ))
 
 
@@ -242,16 +242,16 @@ def _check_sig_algorithm(cert_info: dict, findings: list) -> None:
     if "md5" in sig:
         findings.append(FindingData(
             severity="critical",
-            title="Certificat signé avec MD5",
-            description="MD5 est vulnérable aux collisions. Le certificat peut être falsifié.",
-            remediation="Régénérer le certificat avec SHA-256 ou supérieur.",
+            title="Certificate signed with MD5",
+            description="MD5 is vulnerable to collisions. The certificate can be forged.",
+            remediation="Regenerate the certificate with SHA-256 or higher.",
         ))
     elif "sha1" in sig:
         findings.append(FindingData(
             severity="high",
-            title="Certificat signé avec SHA-1",
-            description="SHA-1 est déprécié et vulnérable aux attaques par collision.",
-            remediation="Régénérer le certificat avec SHA-256 ou supérieur.",
+            title="Certificate signed with SHA-1",
+            description="SHA-1 is deprecated and vulnerable to collision attacks.",
+            remediation="Regenerate the certificate with SHA-256 or higher.",
         ))
 
 
@@ -266,17 +266,17 @@ def _check_wildcard_cert(cert_info: dict, findings: list) -> None:
         if len(parts) <= 1:
             findings.append(FindingData(
                 severity="high",
-                title=f"Certificat wildcard excessivement large : {w}",
-                description=f"Le certificat couvre {w}, un périmètre dangereusement large.",
-                remediation="Utiliser des certificats spécifiques aux sous-domaines nécessaires.",
+                title=f"Excessively broad wildcard certificate: {w}",
+                description=f"The certificate covers {w}, a dangerously broad scope.",
+                remediation="Use certificates specific to the required subdomains.",
             ))
             return
     if len(wildcards) >= 1:
         findings.append(FindingData(
             severity="medium",
-            title=f"Certificat wildcard ({', '.join(wildcards[:3])})",
-            description="Un certificat wildcard couvre tous les sous-domaines. Si la clé privée est compromise, tous sont affectés.",
-            remediation="Envisager des certificats spécifiques par service pour limiter l'impact d'une compromission.",
+            title=f"Wildcard certificate ({', '.join(wildcards[:3])})",
+            description="A wildcard certificate covers all subdomains. If the private key is compromised, all are affected.",
+            remediation="Consider service-specific certificates to limit the impact of a compromise.",
         ))
 
 
@@ -285,9 +285,9 @@ def _check_san_coverage(cert_info: dict, domain: str, findings: list) -> None:
     if not sans:
         findings.append(FindingData(
             severity="low",
-            title="Certificat sans extension SAN",
-            description="Le certificat ne contient pas de Subject Alternative Names. Les navigateurs modernes exigent cette extension.",
-            remediation="Régénérer le certificat en incluant les SANs appropriés.",
+            title="Certificate without SAN extension",
+            description="The certificate does not contain Subject Alternative Names. Modern browsers require this extension.",
+            remediation="Regenerate the certificate including the appropriate SANs.",
         ))
         return
     # Check that the scanned domain is covered by the SANs
@@ -298,7 +298,7 @@ def _check_san_coverage(cert_info: dict, domain: str, findings: list) -> None:
     if not covered:
         findings.append(FindingData(
             severity="medium",
-            title=f"Domaine {domain} non couvert par les SANs du certificat",
-            description=f"Les SANs du certificat ({', '.join(sans[:5])}) ne couvrent pas {domain}.",
-            remediation="Régénérer le certificat en incluant le domaine dans les SANs.",
+            title=f"Domain {domain} not covered by the certificate SANs",
+            description=f"The certificate SANs ({', '.join(sans[:5])}) do not cover {domain}.",
+            remediation="Regenerate the certificate including the domain in the SANs.",
         ))

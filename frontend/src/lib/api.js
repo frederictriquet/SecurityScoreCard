@@ -21,7 +21,7 @@ export async function createScan(domain, confirm = false) {
     const detail = Array.isArray(err.detail)
       ? err.detail.map(e => e.msg).join(', ')
       : err.detail;
-    throw new Error(detail || `Erreur ${res.status}`);
+    throw new Error(detail || `Error ${res.status}`);
   }
   return res.json();
 }

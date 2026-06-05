@@ -115,24 +115,24 @@
 
     {#if homographWarning}
       <div class="homograph-warning" role="alert">
-        <h3>⚠ Domaine homographe détecté</h3>
+        <h3>⚠ Homograph domain detected</h3>
         <p class="homograph-explain">{homographWarning.explanation}</p>
         <dl class="homograph-forms">
           <div>
-            <dt>Forme saisie</dt>
+            <dt>Entered form</dt>
             <dd>{homographWarning.domain}</dd>
           </div>
           <div>
-            <dt>Forme réelle scannée (Punycode)</dt>
+            <dt>Actual scanned form (Punycode)</dt>
             <dd><code>{homographWarning.punycode}</code></dd>
           </div>
         </dl>
         <div class="homograph-actions">
           <button type="button" class="cancel" on:click={cancelHomograph}>
-            Annuler
+            Cancel
           </button>
           <button type="button" class="force" on:click={confirmHomograph}>
-            Scanner quand même
+            Scan anyway
           </button>
         </div>
       </div>

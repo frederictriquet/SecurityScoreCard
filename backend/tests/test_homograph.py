@@ -41,14 +41,14 @@ class TestBuildHomographExplanation:
     def test_mixed_script_explained(self):
         msg = build_homograph_explanation("pаypal.com")  # Cyrillic "а"
         assert msg is not None
-        assert "homographe" in msg.lower()
+        assert "homograph" in msg.lower()
         assert "CYRILLIC SMALL LETTER A" in msg
         assert "U+0430" in msg
 
     def test_whole_confusable_explained(self):
         msg = build_homograph_explanation("gооgle")  # Cyrillic "о"
         assert msg is not None
-        assert "homographe" in msg.lower()
+        assert "homograph" in msg.lower()
 
     def test_explanation_includes_punycode(self):
         msg = build_homograph_explanation("pаypal.com")
@@ -59,7 +59,7 @@ class TestBuildHomographExplanation:
         msg = build_homograph_explanation("pаypal.com")
         assert msg is not None
         assert "IDN spoofing" in msg
-        assert "légitime" in msg
+        assert "legitimate" in msg
 
     def test_pure_ascii_returns_none(self):
         assert build_homograph_explanation("paypal.com") is None

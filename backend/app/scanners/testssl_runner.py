@@ -25,78 +25,78 @@ _SEVERITY_MAP = {
 _VULN_CHECKS: dict[str, dict] = {
     "heartbleed": {
         "title": "Heartbleed (CVE-2014-0160)",
-        "description": "Le serveur est vulnérable à Heartbleed, permettant la lecture de la mémoire du serveur.",
-        "remediation": "Mettre à jour OpenSSL et régénérer les certificats et clés privées.",
+        "description": "The server is vulnerable to Heartbleed, allowing the server's memory to be read.",
+        "remediation": "Update OpenSSL and regenerate the certificates and private keys.",
     },
     "CCS": {
         "title": "CCS Injection (CVE-2014-0224)",
-        "description": "Vulnérabilité d'injection CCS permettant un man-in-the-middle.",
-        "remediation": "Mettre à jour OpenSSL.",
+        "description": "CCS injection vulnerability allowing a man-in-the-middle.",
+        "remediation": "Update OpenSSL.",
     },
     "ticketbleed": {
         "title": "Ticketbleed (CVE-2016-9244)",
-        "description": "Fuite de mémoire via les tickets de session TLS (F5 BIG-IP).",
-        "remediation": "Mettre à jour le firmware F5 BIG-IP.",
+        "description": "Memory leak via TLS session tickets (F5 BIG-IP).",
+        "remediation": "Update the F5 BIG-IP firmware.",
     },
     "ROBOT": {
         "title": "ROBOT (Return Of Bleichenbacher's Oracle Threat)",
-        "description": "Oracle de padding RSA PKCS#1 v1.5, permettant le déchiffrement passif du trafic.",
-        "remediation": "Désactiver RSA key exchange ou mettre à jour le serveur TLS.",
+        "description": "RSA PKCS#1 v1.5 padding oracle, allowing passive decryption of traffic.",
+        "remediation": "Disable RSA key exchange or update the TLS server.",
     },
     "secure_renego": {
-        "title": "Renégociation TLS non sécurisée (CVE-2009-3555)",
-        "description": "Le serveur supporte la renégociation non sécurisée, vulnérable au prefix injection.",
-        "remediation": "Activer la renégociation sécurisée (RFC 5746).",
+        "title": "Insecure TLS renegotiation (CVE-2009-3555)",
+        "description": "The server supports insecure renegotiation, vulnerable to prefix injection.",
+        "remediation": "Enable secure renegotiation (RFC 5746).",
     },
     "CRIME_TLS": {
-        "title": "CRIME (Compression TLS activée)",
-        "description": "La compression TLS est activée, permettant la fuite de secrets via les ratios de compression.",
-        "remediation": "Désactiver la compression TLS.",
+        "title": "CRIME (TLS compression enabled)",
+        "description": "TLS compression is enabled, allowing secrets to be leaked via compression ratios.",
+        "remediation": "Disable TLS compression.",
     },
     "BREACH": {
         "title": "BREACH (compression HTTP)",
-        "description": "La compression HTTP est activée sur des pages contenant des secrets (tokens CSRF).",
-        "remediation": "Désactiver la compression HTTP ou implémenter des contre-mesures.",
+        "description": "HTTP compression is enabled on pages containing secrets (CSRF tokens).",
+        "remediation": "Disable HTTP compression or implement countermeasures.",
     },
     "POODLE_SSL": {
         "title": "POODLE (SSLv3 CBC)",
-        "description": "SSLv3 est supporté et vulnérable à l'attaque POODLE sur les cipher blocks CBC.",
-        "remediation": "Désactiver SSLv3.",
+        "description": "SSLv3 is supported and vulnerable to the POODLE attack on CBC cipher blocks.",
+        "remediation": "Disable SSLv3.",
     },
     "fallback_SCSV": {
-        "title": "TLS_FALLBACK_SCSV non supporté",
-        "description": "Le mécanisme de protection contre le downgrade de protocole n'est pas implémenté.",
-        "remediation": "Mettre à jour le serveur TLS pour supporter TLS_FALLBACK_SCSV.",
+        "title": "TLS_FALLBACK_SCSV not supported",
+        "description": "The protocol downgrade protection mechanism is not implemented.",
+        "remediation": "Update the TLS server to support TLS_FALLBACK_SCSV.",
     },
     "SWEET32": {
         "title": "SWEET32 (CVE-2016-2183)",
-        "description": "Ciphers avec blocs de 64 bits (3DES) vulnérables à l'attaque birthday.",
-        "remediation": "Désactiver 3DES et les ciphers avec blocs de 64 bits.",
+        "description": "Ciphers with 64-bit blocks (3DES) vulnerable to the birthday attack.",
+        "remediation": "Disable 3DES and ciphers with 64-bit blocks.",
     },
     "FREAK": {
         "title": "FREAK (Factoring RSA Export Keys)",
-        "description": "Le serveur accepte des ciphers export RSA avec clés courtes (512 bits).",
-        "remediation": "Désactiver les ciphers export.",
+        "description": "The server accepts RSA export ciphers with short keys (512 bits).",
+        "remediation": "Disable export ciphers.",
     },
     "DROWN": {
         "title": "DROWN (CVE-2016-0800)",
-        "description": "SSLv2 est supporté, permettant le déchiffrement de connexions TLS modernes.",
-        "remediation": "Désactiver SSLv2 sur tous les serveurs partageant la même clé privée.",
+        "description": "SSLv2 is supported, allowing decryption of modern TLS connections.",
+        "remediation": "Disable SSLv2 on all servers sharing the same private key.",
     },
     "LOGJAM": {
         "title": "LOGJAM (CVE-2015-4000)",
-        "description": "Paramètres Diffie-Hellman trop courts, vulnérables à la pré-computation.",
-        "remediation": "Utiliser des paramètres DH d'au moins 2048 bits ou passer à ECDHE.",
+        "description": "Diffie-Hellman parameters too short, vulnerable to pre-computation.",
+        "remediation": "Use DH parameters of at least 2048 bits or switch to ECDHE.",
     },
     "BEAST": {
         "title": "BEAST (CVE-2011-3389)",
-        "description": "CBC ciphers avec TLS 1.0 vulnérables à l'attaque de Duong et Rizzo.",
-        "remediation": "Préférer TLS 1.2+ avec des ciphers GCM, ou désactiver CBC sur TLS 1.0.",
+        "description": "CBC ciphers with TLS 1.0 vulnerable to the Duong and Rizzo attack.",
+        "remediation": "Prefer TLS 1.2+ with GCM ciphers, or disable CBC on TLS 1.0.",
     },
     "RC4": {
-        "title": "Support de RC4",
-        "description": "Le serveur accepte des ciphers RC4, considérés cryptographiquement cassés.",
-        "remediation": "Désactiver tous les ciphers RC4.",
+        "title": "RC4 support",
+        "description": "The server accepts RC4 ciphers, considered cryptographically broken.",
+        "remediation": "Disable all RC4 ciphers.",
     },
 }
 
@@ -104,14 +104,14 @@ _VULN_CHECKS: dict[str, dict] = {
 
 _CERT_CHECKS: dict[str, dict] = {
     "cert_chain_of_trust": {
-        "title": "Chaîne de certificats invalide",
-        "description": "La chaîne de confiance du certificat est incomplète ou invalide.",
-        "remediation": "Configurer les certificats intermédiaires correctement sur le serveur.",
+        "title": "Invalid certificate chain",
+        "description": "The certificate's chain of trust is incomplete or invalid.",
+        "remediation": "Configure the intermediate certificates correctly on the server.",
     },
     "intermediate_cert": {
-        "title": "Certificat intermédiaire manquant",
-        "description": "Le serveur ne fournit pas tous les certificats intermédiaires nécessaires.",
-        "remediation": "Ajouter le(s) certificat(s) intermédiaire(s) à la configuration du serveur.",
+        "title": "Missing intermediate certificate",
+        "description": "The server does not provide all the necessary intermediate certificates.",
+        "remediation": "Add the intermediate certificate(s) to the server configuration.",
     },
 }
 
@@ -120,16 +120,16 @@ _SPECIAL_CHECKS = {
     "OCSP_stapling": {
         "flag_if": "not offered",
         "severity": "medium",
-        "title": "OCSP Stapling non activé",
-        "description": "Le serveur ne fournit pas de réponse OCSP agrafée. Le navigateur doit contacter le CA séparément.",
-        "remediation": "Activer OCSP Stapling dans la configuration du serveur web (ssl_stapling on pour nginx).",
+        "title": "OCSP Stapling not enabled",
+        "description": "The server does not provide a stapled OCSP response. The browser must contact the CA separately.",
+        "remediation": "Enable OCSP Stapling in the web server configuration (ssl_stapling on for nginx).",
     },
     "certificate_transparency": {
         "flag_if": "no ",
         "severity": "medium",
-        "title": "Certificate Transparency : SCT manquants",
-        "description": "Le certificat n'inclut pas de Signed Certificate Timestamps, requis par Chrome.",
-        "remediation": "Utiliser un CA qui publie dans les logs CT (Let's Encrypt le fait automatiquement).",
+        "title": "Certificate Transparency: SCTs missing",
+        "description": "The certificate does not include Signed Certificate Timestamps, required by Chrome.",
+        "remediation": "Use a CA that publishes to CT logs (Let's Encrypt does this automatically).",
     },
 }
 

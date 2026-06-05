@@ -66,7 +66,7 @@ async def get_scan(scan_id: str, db: AsyncSession = Depends(get_db)):
     )
     scan = result.scalar_one_or_none()
     if scan is None:
-        raise HTTPException(status_code=404, detail="Scan introuvable")
+        raise HTTPException(status_code=404, detail="Scan not found")
     return scan
 
 
@@ -83,7 +83,7 @@ async def rescan_in_place(
     )
     scan = result.scalar_one_or_none()
     if scan is None:
-        raise HTTPException(status_code=404, detail="Scan introuvable")
+        raise HTTPException(status_code=404, detail="Scan not found")
 
     for module in scan.modules:
         await db.delete(module)
@@ -110,6 +110,6 @@ async def delete_scan(scan_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
     if scan is None:
-        raise HTTPException(status_code=404, detail="Scan introuvable")
+        raise HTTPException(status_code=404, detail="Scan not found")
     await db.delete(scan)
     await db.commit()

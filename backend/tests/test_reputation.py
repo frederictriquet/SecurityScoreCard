@@ -199,7 +199,7 @@ class TestCheckAbuseIPDB:
             )
             await _check_abuseipdb(["1.2.3.4"], "fake-key", findings)
         # score 50 > 20 → medium
-        assert "42 signalement" in findings[0].description
+        assert "42 report" in findings[0].description
 
 
 # ===================================================================

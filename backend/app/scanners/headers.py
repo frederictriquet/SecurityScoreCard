@@ -17,66 +17,66 @@ _CLIENT_DEFAULTS = {
 SECURITY_HEADERS = [
     {
         "name": "strict-transport-security",
-        "title": "HSTS manquant",
+        "title": "HSTS missing",
         "severity": "high",
-        "description": "L'en-tête Strict-Transport-Security force HTTPS mais n'est pas présent.",
-        "remediation": "Ajouter : Strict-Transport-Security: max-age=31536000; includeSubDomains",
+        "description": "The Strict-Transport-Security header enforces HTTPS but is not present.",
+        "remediation": "Add: Strict-Transport-Security: max-age=31536000; includeSubDomains",
     },
     {
         "name": "content-security-policy",
-        "title": "CSP manquant",
+        "title": "CSP missing",
         "severity": "medium",
-        "description": "L'en-tête Content-Security-Policy protège contre les injections XSS mais n'est pas présent.",
-        "remediation": "Définir une politique CSP adaptée à votre application.",
+        "description": "The Content-Security-Policy header protects against XSS injections but is not present.",
+        "remediation": "Set a CSP policy suited to your application.",
     },
     {
         "name": "x-frame-options",
-        "title": "X-Frame-Options manquant",
+        "title": "X-Frame-Options missing",
         "severity": "medium",
-        "description": "Sans cet en-tête, la page peut être intégrée dans une iframe (risque de clickjacking).",
-        "remediation": "Ajouter : X-Frame-Options: DENY ou SAMEORIGIN",
+        "description": "Without this header, the page can be embedded in an iframe (clickjacking risk).",
+        "remediation": "Add: X-Frame-Options: DENY or SAMEORIGIN",
     },
     {
         "name": "x-content-type-options",
-        "title": "X-Content-Type-Options manquant",
+        "title": "X-Content-Type-Options missing",
         "severity": "low",
-        "description": "Sans cet en-tête, le navigateur peut deviner le type MIME (MIME sniffing).",
-        "remediation": "Ajouter : X-Content-Type-Options: nosniff",
+        "description": "Without this header, the browser can guess the MIME type (MIME sniffing).",
+        "remediation": "Add: X-Content-Type-Options: nosniff",
     },
     {
         "name": "referrer-policy",
-        "title": "Referrer-Policy manquant",
+        "title": "Referrer-Policy missing",
         "severity": "low",
-        "description": "Sans Referrer-Policy, les URLs complètes peuvent être transmises à des tiers.",
-        "remediation": "Ajouter : Referrer-Policy: strict-origin-when-cross-origin",
+        "description": "Without Referrer-Policy, full URLs may be sent to third parties.",
+        "remediation": "Add: Referrer-Policy: strict-origin-when-cross-origin",
     },
     {
         "name": "permissions-policy",
-        "title": "Permissions-Policy manquant",
+        "title": "Permissions-Policy missing",
         "severity": "low",
-        "description": "Sans Permissions-Policy, l'accès aux APIs du navigateur (caméra, micro...) n'est pas restreint.",
-        "remediation": "Ajouter un en-tête Permissions-Policy adapté à votre usage.",
+        "description": "Without Permissions-Policy, access to browser APIs (camera, microphone...) is not restricted.",
+        "remediation": "Add a Permissions-Policy header suited to your usage.",
     },
     {
         "name": "cross-origin-opener-policy",
-        "title": "Cross-Origin-Opener-Policy (COOP) manquant",
+        "title": "Cross-Origin-Opener-Policy (COOP) missing",
         "severity": "low",
-        "description": "Sans COOP, la page peut être exploitée via des attaques cross-origin (Spectre, window.opener).",
-        "remediation": "Ajouter : Cross-Origin-Opener-Policy: same-origin",
+        "description": "Without COOP, the page can be exploited via cross-origin attacks (Spectre, window.opener).",
+        "remediation": "Add: Cross-Origin-Opener-Policy: same-origin",
     },
     {
         "name": "cross-origin-embedder-policy",
-        "title": "Cross-Origin-Embedder-Policy (COEP) manquant",
+        "title": "Cross-Origin-Embedder-Policy (COEP) missing",
         "severity": "low",
-        "description": "Sans COEP, la page ne peut pas activer l'isolation cross-origin (SharedArrayBuffer, etc.).",
-        "remediation": "Ajouter : Cross-Origin-Embedder-Policy: require-corp",
+        "description": "Without COEP, the page cannot enable cross-origin isolation (SharedArrayBuffer, etc.).",
+        "remediation": "Add: Cross-Origin-Embedder-Policy: require-corp",
     },
     {
         "name": "cross-origin-resource-policy",
-        "title": "Cross-Origin-Resource-Policy (CORP) manquant",
+        "title": "Cross-Origin-Resource-Policy (CORP) missing",
         "severity": "low",
-        "description": "Sans CORP, les ressources peuvent être chargées par n'importe quel site (risque de fuite de données).",
-        "remediation": "Ajouter : Cross-Origin-Resource-Policy: same-origin",
+        "description": "Without CORP, resources can be loaded by any site (data leak risk).",
+        "remediation": "Add: Cross-Origin-Resource-Policy: same-origin",
     },
 ]
 
@@ -88,38 +88,38 @@ COOKIE_PROBE_PATHS = ["/", "/login", "/signin", "/sign-in", "/auth", "/account",
 # Sensitive files whose exposure is critical
 EXPOSED_FILES = [
     ("/.git/HEAD", "ref: ", "critical",
-     "Dépôt Git exposé (.git/)",
-     "Le dépôt Git est accessible publiquement. Un attaquant peut télécharger le code source et l'historique.",
-     "Bloquer l'accès au dossier .git dans la configuration du serveur web."),
+     "Git repository exposed (.git/)",
+     "The Git repository is publicly accessible. An attacker can download the source code and history.",
+     "Block access to the .git directory in the web server configuration."),
     ("/.env", None, "critical",
-     "Fichier .env exposé",
-     "Le fichier d'environnement est accessible. Il peut contenir des mots de passe, clés API et secrets.",
-     "Bloquer l'accès aux fichiers dotenv et les exclure du déploiement."),
+     ".env file exposed",
+     "The environment file is accessible. It may contain passwords, API keys and secrets.",
+     "Block access to dotenv files and exclude them from deployment."),
     ("/.svn/entries", None, "critical",
-     "Dépôt SVN exposé (.svn/)",
-     "Le dépôt Subversion est accessible publiquement.",
-     "Bloquer l'accès au dossier .svn."),
+     "SVN repository exposed (.svn/)",
+     "The Subversion repository is publicly accessible.",
+     "Block access to the .svn directory."),
     ("/web.config", "<configuration", "high",
-     "Fichier web.config exposé",
-     "La configuration IIS est accessible et peut contenir des secrets.",
-     "Bloquer l'accès au fichier web.config."),
+     "web.config file exposed",
+     "The IIS configuration is accessible and may contain secrets.",
+     "Block access to the web.config file."),
     # Backup files (6.5)
     ("/.htpasswd", None, "critical",
-     "Fichier .htpasswd exposé",
-     "Le fichier de mots de passe Apache est accessible publiquement.",
-     "Bloquer l'accès aux fichiers .ht* dans la configuration du serveur."),
+     ".htpasswd file exposed",
+     "The Apache password file is publicly accessible.",
+     "Block access to .ht* files in the server configuration."),
     ("/backup.sql", None, "critical",
-     "Dump SQL accessible (backup.sql)",
-     "Un fichier de backup de base de données est exposé. Il peut contenir toutes les données du site.",
-     "Supprimer les fichiers de backup du répertoire web public."),
+     "SQL dump accessible (backup.sql)",
+     "A database backup file is exposed. It may contain all of the site's data.",
+     "Remove backup files from the public web directory."),
     ("/dump.sql", None, "critical",
-     "Dump SQL accessible (dump.sql)",
-     "Un fichier de backup de base de données est exposé.",
-     "Supprimer les fichiers de backup du répertoire web public."),
+     "SQL dump accessible (dump.sql)",
+     "A database backup file is exposed.",
+     "Remove backup files from the public web directory."),
     ("/database.sql", None, "critical",
-     "Dump SQL accessible (database.sql)",
-     "Un fichier de backup de base de données est exposé.",
-     "Supprimer les fichiers de backup du répertoire web public."),
+     "SQL dump accessible (database.sql)",
+     "A database backup file is exposed.",
+     "Remove backup files from the public web directory."),
 ]
 
 
@@ -212,8 +212,8 @@ class HeadersScanner(BaseScanner):
         except Exception as exc:
             findings.append(FindingData(
                 severity="high",
-                title="Impossible de récupérer les headers HTTP",
-                description=f"La requête GET vers {base_url} a échoué : {exc}",
+                title="Unable to retrieve HTTP headers",
+                description=f"The GET request to {base_url} failed: {exc}",
             ))
             return ScanResult.from_findings(findings)
 
@@ -232,9 +232,9 @@ class HeadersScanner(BaseScanner):
             if header in headers:
                 findings.append(FindingData(
                     severity="info",
-                    title=f"En-tête informatif exposé : {header}",
-                    description=f"La valeur '{headers[header]}' révèle des informations sur la stack technique.",
-                    remediation=f"Supprimer ou masquer l'en-tête {header}.",
+                    title=f"Informational header exposed: {header}",
+                    description=f"The value '{headers[header]}' discloses information about the technical stack.",
+                    remediation=f"Remove or mask the {header} header.",
                 ))
 
         # HTML analysis: SRI + Mixed Content
@@ -247,36 +247,36 @@ class HeadersScanner(BaseScanner):
         for tag, url, host in parser.sri_issues:
             findings.append(FindingData(
                 severity="medium",
-                title=f"SRI manquant sur une ressource externe ({tag})",
-                description=f"La ressource chargée depuis '{host}' n'a pas d'attribut integrity.",
+                title=f"SRI missing on an external resource ({tag})",
+                description=f"The resource loaded from '{host}' has no integrity attribute.",
                 remediation=(
-                    f"Ajouter integrity=\"sha384-<hash>\" sur le tag {tag} pointant vers {url}. "
-                    "Générer le hash avec : openssl dgst -sha384 -binary fichier.js | openssl base64 -A"
+                    f"Add integrity=\"sha384-<hash>\" on the {tag} tag pointing to {url}. "
+                    "Generate the hash with: openssl dgst -sha384 -binary file.js | openssl base64 -A"
                 ),
             ))
 
         for tag, url in parser.mixed_content:
             findings.append(FindingData(
                 severity="high",
-                title=f"Mixed content : ressource HTTP ({tag})",
-                description=f"La ressource '{url}' est chargée en HTTP sur une page HTTPS, exposant le contenu à l'interception.",
-                remediation="Charger toutes les ressources en HTTPS.",
+                title=f"Mixed content: HTTP resource ({tag})",
+                description=f"The resource '{url}' is loaded over HTTP on an HTTPS page, exposing the content to interception.",
+                remediation="Load all resources over HTTPS.",
             ))
 
         for action_url in parser.insecure_forms:
             findings.append(FindingData(
                 severity="high",
-                title="Formulaire soumis en HTTP",
-                description=f"Un formulaire envoie les données vers '{action_url}' en HTTP clair.",
-                remediation="Utiliser une URL HTTPS pour l'attribut action du formulaire.",
+                title="Form submitted over HTTP",
+                description=f"A form sends data to '{action_url}' over cleartext HTTP.",
+                remediation="Use an HTTPS URL for the form's action attribute.",
             ))
 
         for kw, excerpt in parser.sensitive_comments[:5]:
             findings.append(FindingData(
                 severity="low",
-                title=f"Commentaire HTML sensible (mot-clé : {kw})",
-                description=f"Un commentaire HTML contient '{kw}' : « {excerpt} »",
-                remediation="Supprimer les commentaires contenant des informations sensibles avant la mise en production.",
+                title=f"Sensitive HTML comment (keyword: {kw})",
+                description=f"An HTML comment contains '{kw}': \"{excerpt}\"",
+                remediation="Remove comments containing sensitive information before going to production.",
             ))
 
         # X-XSS-Protection deprecated but reported if disabled
@@ -284,9 +284,9 @@ class HeadersScanner(BaseScanner):
         if xss_prot.strip() == "0":
             findings.append(FindingData(
                 severity="low",
-                title="X-XSS-Protection explicitement désactivé (0)",
-                description="L'en-tête X-XSS-Protection est mis à 0, supprimant la protection XSS des anciens navigateurs.",
-                remediation="Supprimer l'en-tête ou le configurer à '1; mode=block'.",
+                title="X-XSS-Protection explicitly disabled (0)",
+                description="The X-XSS-Protection header is set to 0, removing the XSS protection of older browsers.",
+                remediation="Remove the header or configure it to '1; mode=block'.",
             ))
 
         # Parallel checks
@@ -321,25 +321,25 @@ async def _check_cors(base_url: str, findings: list) -> None:
             if acao == "*":
                 findings.append(FindingData(
                     severity="medium",
-                    title="CORS trop permissif (Access-Control-Allow-Origin: *)",
-                    description="Le serveur autorise les requêtes cross-origin depuis n'importe quel domaine.",
-                    remediation="Restreindre Access-Control-Allow-Origin aux domaines autorisés.",
+                    title="CORS too permissive (Access-Control-Allow-Origin: *)",
+                    description="The server allows cross-origin requests from any domain.",
+                    remediation="Restrict Access-Control-Allow-Origin to the allowed domains.",
                 ))
             elif acao == "https://evil.example.com":
                 if acac == "true":
                     findings.append(FindingData(
                         severity="high",
-                        title="CORS : réflexion de l'Origin avec credentials",
-                        description="Le serveur reflète n'importe quel Origin et autorise les credentials. "
-                                    "Cela permet le vol de données cross-origin.",
-                        remediation="Ne pas refléter l'Origin sans validation. Maintenir une whitelist.",
+                        title="CORS: Origin reflection with credentials",
+                        description="The server reflects any Origin and allows credentials. "
+                                    "This enables cross-origin data theft.",
+                        remediation="Do not reflect the Origin without validation. Maintain a whitelist.",
                     ))
                 else:
                     findings.append(FindingData(
                         severity="medium",
-                        title="CORS : réflexion de l'Origin",
-                        description="Le serveur reflète n'importe quel Origin dans Access-Control-Allow-Origin.",
-                        remediation="Valider l'Origin contre une whitelist avant de le refléter.",
+                        title="CORS: Origin reflection",
+                        description="The server reflects any Origin in Access-Control-Allow-Origin.",
+                        remediation="Validate the Origin against a whitelist before reflecting it.",
                     ))
     except Exception:
         pass
@@ -399,8 +399,8 @@ async def _check_exposed_files(base_url: str, findings: list) -> None:
         findings.append(FindingData(
             severity="info",
             title="security.txt absent",
-            description="Aucun fichier security.txt trouvé. Ce fichier aide les chercheurs en sécurité à signaler les vulnérabilités.",
-            remediation="Créer /.well-known/security.txt selon le RFC 9116 (Contact, Expires, etc.).",
+            description="No security.txt file found. This file helps security researchers report vulnerabilities.",
+            remediation="Create /.well-known/security.txt according to RFC 9116 (Contact, Expires, etc.).",
         ))
 
 
@@ -438,29 +438,29 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
             seen.add(issue_key)
             findings.append(FindingData(
                 severity="medium",
-                title=f"Cookie '{name}' : préfixe __Secure- sans attribut Secure",
-                description="Les cookies avec le préfixe __Secure- doivent impérativement avoir l'attribut Secure.",
-                remediation="Ajouter l'attribut Secure ou retirer le préfixe __Secure-.",
+                title=f"Cookie '{name}': __Secure- prefix without Secure attribute",
+                description="Cookies with the __Secure- prefix must have the Secure attribute.",
+                remediation="Add the Secure attribute or remove the __Secure- prefix.",
             ))
 
     # __Host- prefix (4.4)
     if name.startswith("__Host-"):
         problems = []
         if "secure" not in attrs:
-            problems.append("Secure manquant")
+            problems.append("Secure missing")
         if attr_map.get("path", "") != "/":
-            problems.append("Path doit être /")
+            problems.append("Path must be /")
         if "domain" in attr_map:
-            problems.append("Domain ne doit pas être défini")
+            problems.append("Domain must not be set")
         if problems:
             issue_key = f"prefix-host:{name}"
             if issue_key not in seen:
                 seen.add(issue_key)
                 findings.append(FindingData(
                     severity="medium",
-                    title=f"Cookie '{name}' : préfixe __Host- mal configuré",
-                    description=f"Problèmes : {', '.join(problems)}. Les cookies __Host- exigent Secure, Path=/ et aucun Domain.",
-                    remediation="Corriger les attributs du cookie selon les exigences du préfixe __Host-.",
+                    title=f"Cookie '{name}': __Host- prefix misconfigured",
+                    description=f"Issues: {', '.join(problems)}. __Host- cookies require Secure, Path=/ and no Domain.",
+                    remediation="Fix the cookie attributes according to the __Host- prefix requirements.",
                 ))
 
     # Excessive Max-Age > 1 year (4.5)
@@ -475,9 +475,9 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
                     days = max_age // 86400
                     findings.append(FindingData(
                         severity="low",
-                        title=f"Cookie '{name}' : durée de vie excessive ({days} jours)",
-                        description=f"Le cookie a un Max-Age de {days} jours (> 1 an), augmentant la fenêtre d'exploitation en cas de vol.",
-                        remediation="Réduire la durée de vie des cookies de session à quelques heures ou jours.",
+                        title=f"Cookie '{name}': excessive lifetime ({days} days)",
+                        description=f"The cookie has a Max-Age of {days} days (> 1 year), increasing the exploitation window if stolen.",
+                        remediation="Reduce the lifetime of session cookies to a few hours or days.",
                     ))
         except ValueError:
             pass
@@ -490,9 +490,9 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
             seen.add(issue_key)
             findings.append(FindingData(
                 severity="medium",
-                title=f"Cookie '{name}' : scope trop large (Domain={cookie_domain})",
-                description=f"Le cookie est partagé avec tous les sous-domaines de {cookie_domain}. Un sous-domaine compromis peut y accéder.",
-                remediation="Retirer l'attribut Domain ou le restreindre au sous-domaine nécessaire.",
+                title=f"Cookie '{name}': scope too broad (Domain={cookie_domain})",
+                description=f"The cookie is shared with all subdomains of {cookie_domain}. A compromised subdomain can access it.",
+                remediation="Remove the Domain attribute or restrict it to the required subdomain.",
             ))
 
     # Secure
@@ -501,9 +501,9 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
         seen.add(issue_key)
         findings.append(FindingData(
             severity="medium",
-            title=f"Cookie '{name}' sans attribut Secure (trouvé sur {path})",
-            description=f"Le cookie '{name}' peut être transmis sur des connexions HTTP non chiffrées.",
-            remediation="Ajouter l'attribut Secure à tous les cookies de session.",
+            title=f"Cookie '{name}' without Secure attribute (found on {path})",
+            description=f"The cookie '{name}' may be transmitted over unencrypted HTTP connections.",
+            remediation="Add the Secure attribute to all session cookies.",
         ))
 
     # HttpOnly
@@ -512,9 +512,9 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
         seen.add(issue_key)
         findings.append(FindingData(
             severity="medium",
-            title=f"Cookie '{name}' sans attribut HttpOnly (trouvé sur {path})",
-            description=f"Le cookie '{name}' est accessible via JavaScript, ce qui l'expose aux attaques XSS.",
-            remediation="Ajouter l'attribut HttpOnly à tous les cookies de session.",
+            title=f"Cookie '{name}' without HttpOnly attribute (found on {path})",
+            description=f"The cookie '{name}' is accessible via JavaScript, which exposes it to XSS attacks.",
+            remediation="Add the HttpOnly attribute to all session cookies.",
         ))
 
     # SameSite
@@ -524,17 +524,17 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
         seen.add(issue_key)
         findings.append(FindingData(
             severity="low",
-            title=f"Cookie '{name}' sans attribut SameSite (trouvé sur {path})",
-            description=f"Sans SameSite, le cookie '{name}' peut être envoyé dans des requêtes cross-site (CSRF).",
-            remediation="Ajouter SameSite=Strict ou SameSite=Lax selon le besoin.",
+            title=f"Cookie '{name}' without SameSite attribute (found on {path})",
+            description=f"Without SameSite, the cookie '{name}' may be sent in cross-site requests (CSRF).",
+            remediation="Add SameSite=Strict or SameSite=Lax as needed.",
         ))
     elif samesite == "none" and "secure" not in attrs and issue_key not in seen:
         seen.add(issue_key)
         findings.append(FindingData(
             severity="high",
-            title=f"Cookie '{name}' : SameSite=None sans Secure (trouvé sur {path})",
-            description="SameSite=None exige l'attribut Secure, sinon le cookie est rejeté par les navigateurs modernes.",
-            remediation="Ajouter l'attribut Secure ou changer SameSite=Lax.",
+            title=f"Cookie '{name}': SameSite=None without Secure (found on {path})",
+            description="SameSite=None requires the Secure attribute, otherwise the cookie is rejected by modern browsers.",
+            remediation="Add the Secure attribute or change to SameSite=Lax.",
         ))
 
 
@@ -554,9 +554,9 @@ async def _check_http_methods(base_url: str, findings: list) -> None:
             if dangerous:
                 findings.append(FindingData(
                     severity="medium",
-                    title=f"Méthodes HTTP dangereuses autorisées : {', '.join(sorted(dangerous))}",
-                    description=f"Le serveur autorise {', '.join(sorted(dangerous))} via l'en-tête Allow.",
-                    remediation="Désactiver les méthodes HTTP non nécessaires dans la configuration du serveur.",
+                    title=f"Dangerous HTTP methods allowed: {', '.join(sorted(dangerous))}",
+                    description=f"The server allows {', '.join(sorted(dangerous))} via the Allow header.",
+                    remediation="Disable unnecessary HTTP methods in the server configuration.",
                 ))
     except Exception:
         pass
@@ -585,9 +585,9 @@ async def _check_robots_sitemap(base_url: str, findings: list) -> None:
                 if exposed:
                     findings.append(FindingData(
                         severity="low",
-                        title="robots.txt révèle des chemins sensibles",
-                        description=f"Chemins potentiellement sensibles listés dans robots.txt : {', '.join(exposed[:5])}",
-                        remediation="Vérifier que ces chemins ne sont pas accessibles sans authentification.",
+                        title="robots.txt discloses sensitive paths",
+                        description=f"Potentially sensitive paths listed in robots.txt: {', '.join(exposed[:5])}",
+                        remediation="Check that these paths are not accessible without authentication.",
                     ))
         except Exception:
             pass
@@ -599,8 +599,8 @@ async def _check_robots_sitemap(base_url: str, findings: list) -> None:
                 findings.append(FindingData(
                     severity="info",
                     title="sitemap.xml accessible",
-                    description="Le fichier sitemap.xml est publiquement accessible et révèle la structure du site.",
-                    remediation="Vérifier que le sitemap ne référence pas de pages internes ou protégées.",
+                    description="The sitemap.xml file is publicly accessible and discloses the structure of the site.",
+                    remediation="Check that the sitemap does not reference internal or protected pages.",
                 ))
         except Exception:
             pass
@@ -619,9 +619,9 @@ async def _check_cache_control(base_url: str, findings: list) -> None:
                 if "no-store" not in cc and "no-cache" not in cc:
                     findings.append(FindingData(
                         severity="medium",
-                        title=f"Cache-Control manquant sur page sensible ({path})",
-                        description=f"La page {path} ne contient pas 'no-store' dans Cache-Control. Elle pourrait être mise en cache.",
-                        remediation="Ajouter Cache-Control: no-store, no-cache sur les pages d'authentification et sensibles.",
+                        title=f"Cache-Control missing on sensitive page ({path})",
+                        description=f"The page {path} does not contain 'no-store' in Cache-Control. It could be cached.",
+                        remediation="Add Cache-Control: no-store, no-cache on authentication and sensitive pages.",
                     ))
                     return  # A single finding is enough
             except Exception:
@@ -645,9 +645,9 @@ async def _check_error_pages(base_url: str, findings: list) -> None:
                 if pattern in text:
                     findings.append(FindingData(
                         severity="medium",
-                        title="Page d'erreur verbeuse (informations techniques exposées)",
-                        description=f"La page d'erreur contient '{pattern}', révélant des détails techniques utiles à un attaquant.",
-                        remediation="Configurer des pages d'erreur personnalisées sans détails techniques en production.",
+                        title="Verbose error page (technical information exposed)",
+                        description=f"The error page contains '{pattern}', disclosing technical details useful to an attacker.",
+                        remediation="Configure custom error pages without technical details in production.",
                     ))
                     return
     except Exception:
