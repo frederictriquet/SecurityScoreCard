@@ -8,7 +8,7 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from app.database import Base, engine, AsyncSessionLocal
+import app.database as _db
 from app.models import Scan, ScanModule, Finding
 from app.main import app
 from app.limiter import limiter
@@ -21,13 +21,9 @@ from app.scanners.base import BaseScanner, ScanResult, FindingData
 
 
 @pytest.fixture(autouse=True)
-async def setup_db():
-    """Crée les tables avant chaque test et les supprime après."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+async def setup_db(isolated_db):
+    """Each test gets a private SQLite file + fresh engine (see conftest)."""
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture
@@ -88,13 +84,13 @@ class _FailingScanner(BaseScanner):
 
 
 async def _count_rows(model) -> int:
-    async with AsyncSessionLocal() as session:
+    async with _db.AsyncSessionLocal() as session:
         result = await session.execute(select(func.count()).select_from(model))
         return result.scalar()
 
 
 async def _get_scan_with_modules(scan_id: str) -> Scan:
-    async with AsyncSessionLocal() as session:
+    async with _db.AsyncSessionLocal() as session:
         result = await session.execute(
             select(Scan)
             .options(selectinload(Scan.modules).selectinload(ScanModule.findings))
@@ -574,7 +570,7 @@ class TestRescanCascade:
             await client.post(f"/api/scans/{scan_id}/rescan")
 
         # Aucun finding ne doit rester pour ce scan
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             result = await session.execute(
                 select(Finding)
                 .join(ScanModule)
@@ -699,15 +695,19 @@ class TestConcurrency:
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
         scan_id = resp.json()["id"]
 
-        async def rescan_with(sc):
-            with patch("app.scanners.orchestrator.SCANNERS", sc):
-                return await client.post(f"/api/scans/{scan_id}/rescan")
+        async def rescan():
+            return await client.post(f"/api/scans/{scan_id}/rescan")
 
-        results = await asyncio.gather(
-            rescan_with([_FakeScanner("s", 1.0, score=90)]),
-            rescan_with([_FakeScanner("s", 1.0, score=70)]),
-            return_exceptions=True,
-        )
+        # Patch SCANNERS once, around both concurrent rescans. Patching the same
+        # target inside each gathered task would overlap two unittest.mock.patch
+        # contexts on one global: their save/restore is not concurrency-safe and
+        # would leave SCANNERS permanently corrupted, leaking into later tests.
+        with patch("app.scanners.orchestrator.SCANNERS", [_FakeScanner("s", 1.0, score=90)]):
+            results = await asyncio.gather(
+                rescan(),
+                rescan(),
+                return_exceptions=True,
+            )
 
         # Les deux endpoints HTTP retournent 200 (le reset est synchrone),
         # mais les background tasks concurrentes peuvent échouer en DB.

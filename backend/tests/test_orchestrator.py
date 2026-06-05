@@ -6,7 +6,7 @@ from unittest.mock import patch, AsyncMock
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.database import Base, engine, AsyncSessionLocal
+import app.database as _db
 from app.models import Scan, ScanModule, Finding
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 from app.scanners.orchestrator import (
@@ -24,12 +24,9 @@ from app.scanners.orchestrator import (
 
 
 @pytest.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+async def setup_db(isolated_db):
+    """Each test gets a private SQLite file + fresh engine (see conftest)."""
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 # ===================================================================
@@ -64,7 +61,7 @@ class FailingScanner(BaseScanner):
 
 async def _create_scan_in_db(domain: str = "example.com") -> str:
     """Insert a pending Scan into the DB and return its id."""
-    async with AsyncSessionLocal() as session:
+    async with _db.AsyncSessionLocal() as session:
         scan = Scan(domain=domain)
         session.add(scan)
         await session.commit()
@@ -73,7 +70,7 @@ async def _create_scan_in_db(domain: str = "example.com") -> str:
 
 async def _get_scan_full(scan_id: str) -> Scan:
     """Re-read a Scan with its modules and findings."""
-    async with AsyncSessionLocal() as session:
+    async with _db.AsyncSessionLocal() as session:
         result = await session.execute(
             select(Scan)
             .options(selectinload(Scan.modules).selectinload(ScanModule.findings))
@@ -83,7 +80,7 @@ async def _get_scan_full(scan_id: str) -> Scan:
 
 
 async def _get_modules(scan_id: str) -> list[ScanModule]:
-    async with AsyncSessionLocal() as session:
+    async with _db.AsyncSessionLocal() as session:
         result = await session.execute(
             select(ScanModule)
             .options(selectinload(ScanModule.findings))
@@ -191,7 +188,7 @@ class TestRunSingleScannerSuccess:
         scanner = FakeScanner("test_scanner", 0.5, score=85)
 
         # Create the module in the DB (as run_scan would)
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="test_scanner", weight=0.5, status="pending",
             ))
@@ -209,7 +206,7 @@ class TestRunSingleScannerSuccess:
         scan_id = await _create_scan_in_db()
         scanner = FakeScanner("ts", 0.5, score=100)
 
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="ts", weight=0.5, status="pending",
             ))
@@ -241,7 +238,7 @@ class TestRunSingleScannerSuccess:
         ]
         scanner = FakeScanner("ts", 0.5, score=75, findings=findings)
 
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="ts", weight=0.5, status="pending",
             ))
@@ -269,7 +266,7 @@ class TestRunSingleScannerSuccess:
         scan_id = await _create_scan_in_db()
         scanner = FakeScanner("ts", 0.5, score=100, findings=[])
 
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="ts", weight=0.5, status="pending",
             ))
@@ -293,7 +290,7 @@ class TestRunSingleScannerFailure:
         scan_id = await _create_scan_in_db()
         scanner = FailingScanner("fail_scanner", 0.5, "Boom!")
 
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="fail_scanner", weight=0.5, status="pending",
             ))
@@ -310,7 +307,7 @@ class TestRunSingleScannerFailure:
         scan_id = await _create_scan_in_db()
         scanner = FailingScanner("fail_scanner", 0.5, "Connection refused")
 
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="fail_scanner", weight=0.5, status="pending",
             ))
@@ -329,7 +326,7 @@ class TestRunSingleScannerFailure:
         scan_id = await _create_scan_in_db()
         scanner = FailingScanner("fail_scanner", 0.5)
 
-        async with AsyncSessionLocal() as session:
+        async with _db.AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="fail_scanner", weight=0.5, status="pending",
             ))
