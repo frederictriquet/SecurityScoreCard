@@ -8,5 +8,8 @@ node_modules/
 build/
 dist/
 
-# Orchestrateur autonome (logs/findings locaux)
+# Autonomous orchestrator (local logs/findings)
 .orchestrator/
+
+# Local Claude Code config and slash commands
+.claude/
