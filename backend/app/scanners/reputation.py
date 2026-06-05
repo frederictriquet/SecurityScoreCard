@@ -2,10 +2,45 @@ import os
 import socket
 import httpx
 
+import dns.resolver
+import dns.asyncresolver
+
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 SPAMHAUS_ZEN = "zen.spamhaus.org"
+
+# Domain-based DNSBLs (queried with the registrable domain, unlike Spamhaus ZEN
+# which is IP-based). A 127.0.0.x answer means listed; the last octet is a
+# bitmask identifying the sub-list(s) the domain hit.
+SURBL_BITS = {
+    8: "phishing",
+    16: "malware",
+    64: "abuse",
+    128: "cracked",
+}
+URIBL_BITS = {
+    2: "black",
+    4: "grey",
+    8: "red",
+}
+DOMAIN_DNSBLS = [
+    {"name": "SURBL", "zone": "multi.surbl.org", "bits": SURBL_BITS, "site": "https://surbl.org"},
+    {"name": "URIBL", "zone": "multi.uribl.com", "bits": URIBL_BITS, "site": "https://uribl.com"},
+]
+
+# Second-level public suffixes used by the registrable-domain heuristic. Not an
+# exhaustive Public Suffix List (no extra dependency), just the common cases so
+# that e.g. "mail.example.co.uk" is queried as "example.co.uk".
+MULTI_PART_TLDS = {
+    "co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk", "ltd.uk", "plc.uk",
+    "com.au", "net.au", "org.au", "gov.au", "edu.au", "id.au",
+    "co.nz", "net.nz", "org.nz",
+    "co.za", "org.za",
+    "co.jp", "ne.jp", "or.jp", "go.jp",
+    "com.br", "com.mx", "com.cn", "com.tr", "com.sg", "com.hk", "com.tw",
+    "co.in", "co.kr", "co.il", "co.id", "co.th",
+}
 
 
 class ReputationScanner(BaseScanner):
@@ -14,6 +49,10 @@ class ReputationScanner(BaseScanner):
 
     async def scan(self, domain: str) -> ScanResult:
         findings: list[FindingData] = []
+
+        # SURBL/URIBL are domain-based and independent of the resolved IP, so
+        # run them up front regardless of whether the domain resolves to an IP.
+        await _check_surbl_uribl(domain, findings)
 
         ips = _resolve_ips(domain)
         if not ips:
@@ -93,3 +132,115 @@ def _check_spamhaus_dns(ips: list[str], findings: list) -> None:
             ))
         except socket.gaierror:
             pass  # NXDOMAIN = not in the list, which is good
+
+
+def _registrable_domain(domain: str) -> str:
+    """Best-effort registrable (base) domain for DNSBL queries.
+
+    Strips arbitrary subdomains so SURBL/URIBL are queried with the domain that
+    actually matters (e.g. ``mail.example.co.uk`` -> ``example.co.uk``). Uses a
+    small list of two-level public suffixes rather than a full PSL dependency.
+    """
+    labels = domain.strip(".").lower().split(".")
+    if len(labels) <= 2:
+        return ".".join(labels)
+    if ".".join(labels[-2:]) in MULTI_PART_TLDS:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+async def _query_dnsbl(
+    resolver: dns.asyncresolver.Resolver, fqdn: str
+) -> list[str] | None:
+    """Resolve a DNSBL query.
+
+    Returns the list of A answers (empty list when the domain is not listed,
+    i.e. NXDOMAIN/NoAnswer) or ``None`` when the lookup could not be performed
+    (timeout, network/DNS error) so the caller can treat it as undetermined.
+    """
+    try:
+        answers = await resolver.resolve(fqdn, "A")
+        return [str(r) for r in answers]
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        return []  # not listed
+    except Exception:
+        return None  # timeout / DNS error -> undetermined
+
+
+def _decode_dnsbl(responses: list[str], bits: dict[int, str]) -> tuple[bool, list[str], bool]:
+    """Classify DNSBL A answers.
+
+    Returns ``(listed, sublists, refused)`` where ``refused`` flags the special
+    127.0.0.1 code used by URIBL to signal a query refused / rate-limited /
+    blocked response (typical on shared public resolvers) — which must NOT be
+    counted as a listing.
+    """
+    listed = False
+    refused = False
+    sublists: set[str] = set()
+    for addr in responses:
+        if not addr.startswith("127.0.0."):
+            continue  # only loopback codes are valid DNSBL responses
+        last_octet = int(addr.rsplit(".", 1)[1])
+        if last_octet == 1:
+            refused = True
+            continue
+        listed = True
+        for bit, label in bits.items():
+            if last_octet & bit:
+                sublists.add(label)
+    return listed, sorted(sublists), refused
+
+
+async def _check_surbl_uribl(domain: str, findings: list[FindingData]) -> None:
+    registrable = _registrable_domain(domain)
+    # Use the system/default resolver (from /etc/resolv.conf). SURBL and URIBL
+    # block queries coming from large public/open resolvers (e.g. Google,
+    # Cloudflare) by policy — URIBL answers them with the 127.0.0.1
+    # query-refused code and SURBL withholds its data — so forcing public DNS
+    # would make real listings essentially undetectable. This mirrors the
+    # IP-based Spamhaus check, which relies on the system resolver too.
+    resolver = dns.asyncresolver.Resolver()
+
+    listed_on: list[tuple[str, list[str]]] = []
+    undetermined: list[str] = []
+
+    for entry in DOMAIN_DNSBLS:
+        fqdn = f"{registrable}.{entry['zone']}"
+        responses = await _query_dnsbl(resolver, fqdn)
+        if responses is None:
+            continue  # lookup failed, skip silently
+        listed, sublists, refused = _decode_dnsbl(responses, entry["bits"])
+        if listed:
+            listed_on.append((entry["name"], sublists))
+        elif refused:
+            undetermined.append(entry["name"])
+
+    if listed_on:
+        details = []
+        for name, sublists in listed_on:
+            details.append(f"{name} ({', '.join(sublists)})" if sublists else name)
+        findings.append(FindingData(
+            severity="medium",
+            title=f"Domain listed on {' / '.join(name for name, _ in listed_on)}",
+            description=(
+                f"The registrable domain {registrable} is listed on the following "
+                f"domain-based blocklists: {'; '.join(details)}. These DNSBLs flag "
+                "domains seen in spam, phishing, or malware campaigns."
+            ),
+            remediation=(
+                "Verify that the domain is not compromised or being abused. If you "
+                "believe this is a false positive, request delisting at "
+                "https://surbl.org and/or https://uribl.com."
+            ),
+        ))
+    elif undetermined:
+        findings.append(FindingData(
+            severity="info",
+            title="Domain reputation undetermined (SURBL / URIBL)",
+            description=(
+                f"{', '.join(undetermined)} returned a query-refused code "
+                "(127.0.0.1), usually caused by rate limiting on shared public "
+                "resolvers. The listing status could not be determined."
+            ),
+        ))
