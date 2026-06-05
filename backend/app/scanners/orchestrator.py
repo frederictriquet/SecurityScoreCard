@@ -35,7 +35,7 @@ def score_to_grade(score: int) -> str:
 
 
 async def run_single_scanner(scanner: BaseScanner, domain: str, scan_id: str) -> None:
-    """Chaque scanner tourne dans sa propre session pour éviter la concurrence."""
+    """Each scanner runs in its own session to avoid concurrency issues."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(ScanModule).where(
@@ -79,7 +79,7 @@ async def run_single_scanner(scanner: BaseScanner, domain: str, scan_id: str) ->
 
 
 async def run_scan(scan_id: str, domain: str) -> None:
-    # Initialiser le scan et créer les modules
+    # Initialize the scan and create the modules
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Scan).where(Scan.id == scan_id))
         scan = result.scalar_one()
@@ -97,13 +97,13 @@ async def run_scan(scan_id: str, domain: str) -> None:
 
         await session.commit()
 
-    # Lancer tous les scanners en parallèle, chacun avec sa propre session
+    # Run all scanners in parallel, each with its own session
     await asyncio.gather(*[
         run_single_scanner(scanner, domain, scan_id)
         for scanner in SCANNERS
     ])
 
-    # Calculer le score global
+    # Compute the global score
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(ScanModule).where(ScanModule.scan_id == scan_id)

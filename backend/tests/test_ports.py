@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.ports — PortsScanner, nmap, WHOIS."""
+"""Tests for app.scanners.ports — PortsScanner, nmap, WHOIS."""
 
 import json
 import os
@@ -100,7 +100,7 @@ class TestParseNmapXml:
         assert {p["port"] for p in result} == {80, 443}
 
     def test_closed_port_included(self):
-        """Les ports fermés sont inclus dans le parsing (filtrage fait ailleurs)."""
+        """Closed ports are included in the parsing (filtering done elsewhere)."""
         xml = NMAP_XML_TEMPLATE.format(ports=_make_port_xml(22, state="closed"))
         with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
             f.write(xml)
@@ -147,7 +147,7 @@ class TestParseNmapXml:
         assert "service" not in result[0]
 
     def test_port_without_state_element_skipped(self):
-        """Port sans élément <state> → ignoré."""
+        """Port without <state> element → ignored."""
         xml = NMAP_XML_TEMPLATE.format(
             ports='<port protocol="tcp" portid="22"></port>'
         )
@@ -251,7 +251,7 @@ class TestRunNmap:
         mock_unlink.assert_called_once()
 
     async def test_cleanup_oserror_silenced(self):
-        """os.unlink lève OSError dans le finally → silencié sans crash."""
+        """os.unlink raises OSError in the finally → silenced without crash."""
         mock_proc = AsyncMock()
         mock_proc.wait = AsyncMock(return_value=0)
 
@@ -262,7 +262,7 @@ class TestRunNmap:
         ):
             result = await _run_nmap("example.com")
 
-        # Le résultat est retourné normalement malgré l'échec du cleanup
+        # The result is returned normally despite the cleanup failure
         assert result == [{"port": 80}]
 
 
@@ -272,7 +272,7 @@ class TestRunNmap:
 
 
 def _mock_whois(mock_w):
-    """Crée un context manager qui injecte un mock whois module."""
+    """Create a context manager that injects a mock whois module."""
     import sys
     mock_module = MagicMock()
     mock_module.whois = MagicMock(return_value=mock_w)
@@ -280,7 +280,7 @@ def _mock_whois(mock_w):
 
 
 def _mock_whois_error(exc):
-    """Crée un context manager qui fait échouer whois.whois()."""
+    """Create a context manager that makes whois.whois() fail."""
     import sys
     mock_module = MagicMock()
     mock_module.whois = MagicMock(side_effect=exc)
@@ -306,7 +306,7 @@ class TestWhoisSync:
         assert result["age_days"] > 0
 
     def test_creation_date_as_list(self):
-        """python-whois renvoie parfois une liste de dates."""
+        """python-whois sometimes returns a list of dates."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = [datetime(2020, 6, 1), datetime(2020, 6, 2)]
@@ -342,7 +342,7 @@ class TestWhoisSync:
         assert result is None
 
     def test_import_error_returns_none(self):
-        """Si python-whois n'est pas installé → None."""
+        """If python-whois is not installed → None."""
         import builtins
         original_import = builtins.__import__
 
@@ -370,7 +370,7 @@ class TestWhoisSync:
         assert result["age_days"] is None
 
     def test_creation_date_string_no_age(self):
-        """creation_date est un string → age_days = None (pas isinstance datetime)."""
+        """creation_date is a string → age_days = None (not isinstance datetime)."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = "2020-01-01"
@@ -386,21 +386,21 @@ class TestWhoisSync:
 
 
 # ===================================================================
-# _first_date (helper interne testé via _whois_sync)
+# _first_date (internal helper tested via _whois_sync)
 # ===================================================================
 
 
 class TestFirstDateHelper:
-    """Tests dédiés pour le helper _first_date interne à _whois_sync.
+    """Dedicated tests for the _first_date helper internal to _whois_sync.
 
-    _first_date gère 3 branches :
-      - isinstance(val, list) → prend le premier élément
+    _first_date handles 3 branches:
+      - isinstance(val, list) → takes the first element
       - isinstance(val, datetime) → strftime
-      - sinon → str(val) si val, "" si falsy
+      - otherwise → str(val) if val, "" if falsy
     """
 
     def test_datetime_value(self):
-        """datetime → formaté en YYYY-MM-DD."""
+        """datetime → formatted as YYYY-MM-DD."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = datetime(2023, 7, 15, 12, 30)
@@ -414,7 +414,7 @@ class TestFirstDateHelper:
         assert result["expiration_date"] == "2028-07-15"
 
     def test_list_of_datetimes(self):
-        """Liste de datetimes → prend le premier, formate en YYYY-MM-DD."""
+        """List of datetimes → takes the first, formats as YYYY-MM-DD."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = [datetime(2020, 3, 10), datetime(2020, 3, 11)]
@@ -428,7 +428,7 @@ class TestFirstDateHelper:
         assert result["expiration_date"] == "2025-03-10"
 
     def test_string_value(self):
-        """String brute → passée telle quelle via str(val)."""
+        """Raw string → passed as is via str(val)."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = "before 2000"
@@ -442,7 +442,7 @@ class TestFirstDateHelper:
         assert result["expiration_date"] == "unknown"
 
     def test_none_value(self):
-        """None → string vide."""
+        """None → empty string."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = None
@@ -456,7 +456,7 @@ class TestFirstDateHelper:
         assert result["expiration_date"] == ""
 
     def test_list_with_none_first(self):
-        """Liste dont le premier élément est None → string vide."""
+        """List whose first element is None → empty string."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = [None, datetime(2020, 1, 1)]
@@ -470,7 +470,7 @@ class TestFirstDateHelper:
         assert result["expiration_date"] == ""
 
     def test_list_with_string_first(self):
-        """Liste dont le premier élément est un string → str(val)."""
+        """List whose first element is a string → str(val)."""
         mock_w = MagicMock()
         mock_w.domain_name = "example.com"
         mock_w.creation_date = ["2019-05-20", datetime(2019, 5, 20)]
@@ -551,10 +551,10 @@ class TestCheckWhois:
         assert len(findings) == 0
 
     async def test_whois_no_details_no_info_finding(self):
-        """WHOIS sans registrar/dates → pas de finding info.
+        """WHOIS without registrar/dates → no info finding.
 
-        Vérifie que les strings vides sont traitées comme falsy par
-        info.get("registrar") etc. — aucun détail n'est ajouté.
+        Verify that empty strings are treated as falsy by
+        info.get("registrar") etc. — no detail is added.
         """
         info = {
             "registrar": "",
@@ -566,11 +566,11 @@ class TestCheckWhois:
         with patch("app.scanners.ports._whois_sync", return_value=info):
             await _check_whois("example.com", findings)
 
-        # Pas de finding info (strings vides = falsy)
+        # No info finding (empty strings = falsy)
         assert len(findings) == 0
 
     async def test_whois_partial_details(self):
-        """WHOIS avec registrar mais sans dates → un finding info avec registrar seul."""
+        """WHOIS with registrar but without dates → one info finding with registrar only."""
         info = {
             "registrar": "Gandi SAS",
             "creation_date": "",
@@ -584,12 +584,12 @@ class TestCheckWhois:
         info_findings = [f for f in findings if f.severity == "info"]
         assert len(info_findings) == 1
         assert "Gandi" in info_findings[0].description
-        # Les dates vides ne sont pas incluses dans la description
+        # Empty dates are not included in the description
         assert "Créé le" not in info_findings[0].description
         assert "Expire le" not in info_findings[0].description
 
     async def test_whois_age_none_no_medium(self):
-        """age_days None → pas de finding medium."""
+        """age_days None → no medium finding."""
         info = {
             "registrar": "Gandi",
             "creation_date": "2020-01-01",
@@ -611,7 +611,7 @@ class TestCheckWhois:
 
 class TestPortsScannerScan:
     async def test_nmap_not_available_whois_only(self, scanner):
-        """nmap absent → seul WHOIS est exécuté."""
+        """nmap absent → only WHOIS is run."""
         whois_info = {"registrar": "Test", "creation_date": "2020-01-01",
                       "expiration_date": "2026-01-01", "age_days": 2000}
         with (
@@ -625,7 +625,7 @@ class TestPortsScannerScan:
         assert result.score == 100
 
     async def test_dangerous_port_detected(self, scanner):
-        """Port dangereux ouvert → finding high."""
+        """Dangerous port open → high finding."""
         ports = [{"port": 3306, "proto": "tcp", "state": "open", "service": "mysql"}]
         with (
             patch("app.scanners.ports.is_available", return_value=True),
@@ -642,7 +642,7 @@ class TestPortsScannerScan:
         assert result.score == 80
 
     async def test_multiple_dangerous_ports(self, scanner):
-        """Plusieurs ports dangereux → un finding par port."""
+        """Several dangerous ports → one finding per port."""
         ports = [
             {"port": 21, "proto": "tcp", "state": "open", "service": "ftp"},
             {"port": 23, "proto": "tcp", "state": "open", "service": "telnet"},
@@ -661,7 +661,7 @@ class TestPortsScannerScan:
         assert result.score == 40
 
     async def test_non_standard_port_info_finding(self, scanner):
-        """Port non-standard ouvert (ni 80/443, ni dangereux) → finding info."""
+        """Non-standard port open (neither 80/443 nor dangerous) → info finding."""
         ports = [
             {"port": 80, "proto": "tcp", "state": "open", "service": "http"},
             {"port": 8080, "proto": "tcp", "state": "open", "service": "http-proxy"},
@@ -678,7 +678,7 @@ class TestPortsScannerScan:
         assert "8080" in info_findings[0].description
 
     async def test_only_standard_ports_no_info(self, scanner):
-        """Seuls 80 et 443 ouverts → pas de finding info (pas non-standard)."""
+        """Only 80 and 443 open → no info finding (nothing non-standard)."""
         ports = [
             {"port": 80, "proto": "tcp", "state": "open", "service": "http"},
             {"port": 443, "proto": "tcp", "state": "open", "service": "https"},
@@ -691,11 +691,11 @@ class TestPortsScannerScan:
             result = await scanner.scan("example.com")
 
         assert len(result.findings) == 0
-        # Aucun finding → score parfait
+        # No finding → perfect score
         assert result.score == 100
 
     async def test_nmap_returns_none(self, scanner):
-        """nmap échoue (timeout) → pas de findings ports."""
+        """nmap fails (timeout) → no port findings."""
         with (
             patch("app.scanners.ports.is_available", return_value=True),
             patch("app.scanners.ports._run_nmap", new_callable=AsyncMock, return_value=None),
@@ -707,7 +707,7 @@ class TestPortsScannerScan:
         assert result.score == 100
 
     async def test_no_open_ports(self, scanner):
-        """Aucun port ouvert → pas de findings."""
+        """No port open → no findings."""
         ports = [
             {"port": 80, "proto": "tcp", "state": "filtered"},
             {"port": 443, "proto": "tcp", "state": "closed"},
@@ -723,7 +723,7 @@ class TestPortsScannerScan:
         assert result.score == 100
 
     async def test_young_domain_score(self, scanner):
-        """Domaine récent (medium) → score = 90."""
+        """Recent domain (medium) → score = 90."""
         whois_info = {"registrar": "Test", "creation_date": "2026-03-01",
                       "expiration_date": "2027-03-01", "age_days": 10}
         with (
@@ -736,7 +736,7 @@ class TestPortsScannerScan:
         assert result.score == 90
 
     async def test_dangerous_port_with_raw_data(self, scanner):
-        """Le finding d'un port dangereux inclut raw_data JSON."""
+        """The finding of a dangerous port includes JSON raw_data."""
         ports = [{"port": 6379, "proto": "tcp", "state": "open", "service": "redis"}]
         with (
             patch("app.scanners.ports.is_available", return_value=True),
@@ -751,7 +751,7 @@ class TestPortsScannerScan:
         assert raw["port"] == 6379
 
     async def test_whois_and_nmap_parallel(self, scanner):
-        """WHOIS et nmap s'exécutent en parallèle — les deux résultats sont présents."""
+        """WHOIS and nmap run in parallel — both results are present."""
         ports = [{"port": 3306, "proto": "tcp", "state": "open", "service": "mysql"}]
         whois_info = {"registrar": "Gandi", "creation_date": "2020-01-01",
                       "expiration_date": "2026-01-01", "age_days": 2000}
@@ -769,7 +769,7 @@ class TestPortsScannerScan:
 
     @pytest.mark.parametrize("port,service", list(DANGEROUS_PORTS.items()))
     async def test_each_dangerous_port(self, scanner, port, service):
-        """Chaque port dans DANGEROUS_PORTS produit un finding high."""
+        """Each port in DANGEROUS_PORTS produces a high finding."""
         ports = [{"port": port, "proto": "tcp", "state": "open", "service": service.lower()}]
         with (
             patch("app.scanners.ports.is_available", return_value=True),

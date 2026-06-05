@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.subdomains — SubdomainsScanner, crt.sh, takeover."""
+"""Tests for app.scanners.subdomains — SubdomainsScanner, crt.sh, takeover."""
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -70,7 +70,7 @@ class TestFetchSubdomains:
             result = await _fetch_subdomains("example.com")
         assert "www.example.com" in result
         assert "mail.example.com" in result
-        assert "example.com" in result  # *.example.com → example.com après strip
+        assert "example.com" in result  # *.example.com → example.com after strip
 
     async def test_filters_unrelated_domains(self):
         import respx
@@ -163,7 +163,7 @@ class TestFetchSubdomains:
 
 class TestCheckTakeover:
     async def test_takeover_detected(self):
-        """Un sous-domaine qui redirige vers un service tiers en 404 → un seul finding."""
+        """A subdomain redirecting to a third-party service with a 404 → a single finding."""
         findings = []
         with patch("httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
@@ -198,7 +198,7 @@ class TestCheckTakeover:
         assert len(findings) == 0
 
     async def test_404_without_takeover_signature(self):
-        """Un 404 dont l'URL ne contient aucune signature de service → pas de finding."""
+        """A 404 whose URL contains no service signature → no finding."""
         findings = []
         with patch("httpx.AsyncClient") as MockClient:
             mock_client = AsyncMock()
@@ -207,7 +207,7 @@ class TestCheckTakeover:
 
             mock_resp = MagicMock()
             mock_resp.status_code = 404
-            mock_resp.url = "https://sub.example.com"  # pas de signature connue
+            mock_resp.url = "https://sub.example.com"  # no known signature
             mock_client.get = AsyncMock(return_value=mock_resp)
 
             await _check_takeover({"sub.example.com"}, findings)
@@ -226,7 +226,7 @@ class TestCheckTakeover:
         assert len(findings) == 0
 
     async def test_limits_to_30_subdomains(self):
-        """Le code limite à 30 subdomains × len(TAKEOVER_SIGNATURES) requêtes."""
+        """The code limits to 30 subdomains × len(TAKEOVER_SIGNATURES) requests."""
         findings = []
         subs = {f"sub{i}.example.com" for i in range(50)}
 
@@ -241,7 +241,7 @@ class TestCheckTakeover:
             mock_client.get = AsyncMock(return_value=mock_resp)
 
             await _check_takeover(subs, findings)
-            # 50 sous-domaines mais limité à 30, 1 requête par sous-domaine
+            # 50 subdomains but limited to 30, 1 request per subdomain
             assert mock_client.get.call_count == 30
 
 

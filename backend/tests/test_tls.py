@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.tls — TlsScanner et fonctions auxiliaires."""
+"""Tests for app.scanners.tls — TlsScanner and helper functions."""
 
 import pytest
 import ssl
@@ -56,7 +56,7 @@ class TestCertExpiry:
         _check_cert_expiry(not_after, "example.com", findings)
         assert len(findings) == 1
         assert findings[0].severity == "critical"
-        # Le nombre exact de jours peut varier de ±1 selon l'heure d'exécution
+        # The exact number of days may vary by ±1 depending on execution time
         assert "jour" in findings[0].title
 
     def test_expires_in_less_than_30_days(self):
@@ -68,7 +68,7 @@ class TestCertExpiry:
         assert "jours" in findings[0].title
 
     def test_expires_in_exactly_15_days(self):
-        """15 jours restants : le remaining.days peut être 14 (< 15 → critical) ou 15 (< 30 → high)."""
+        """15 days remaining: remaining.days may be 14 (< 15 → critical) or 15 (< 30 → high)."""
         not_after = datetime.now(timezone.utc) + timedelta(days=15)
         findings = []
         _check_cert_expiry(not_after, "example.com", findings)
@@ -76,11 +76,11 @@ class TestCertExpiry:
         assert findings[0].severity in ("critical", "high")
 
     def test_expires_in_exactly_30_days(self):
-        """30 jours restants : remaining.days peut être 29 (< 30 → high) ou 30 (pas de finding)."""
+        """30 days remaining: remaining.days may be 29 (< 30 → high) or 30 (no finding)."""
         not_after = datetime.now(timezone.utc) + timedelta(days=30)
         findings = []
         _check_cert_expiry(not_after, "example.com", findings)
-        # Peut être 0 ou 1 finding selon le moment exact de l'exécution
+        # May be 0 or 1 finding depending on the exact moment of execution
         assert len(findings) <= 1
 
     def test_expires_in_1_day(self):
@@ -336,7 +336,7 @@ class TestTlsFullScan:
                 issuer_cn="self.example.com",
                 subject_cn="self.example.com",  # self-signed → critical
                 sig_algo="sha1WithRSA",  # sha1 → high
-                sans=["bad.example.com"],  # domaine couvert pour éviter finding SAN
+                sans=["bad.example.com"],  # domain covered to avoid SAN finding
             )
             result = await scanner.scan("bad.example.com")
             # critical(-30) + critical(-30) + high(-20) = 100 - 80 = 20
@@ -345,12 +345,12 @@ class TestTlsFullScan:
 
 
 # ===================================================================
-# _fetch_cert_sync — logique de connexion SSL
+# _fetch_cert_sync — SSL connection logic
 # ===================================================================
 
 
 def _make_mock_ssock(der_bytes=b"FAKE_DER", cipher_tuple=("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256), version="TLSv1.3"):
-    """Crée un mock de SSLSocket avec getpeercert, cipher, version."""
+    """Create a mock SSLSocket with getpeercert, cipher, version."""
     ssock = MagicMock()
     ssock.getpeercert.return_value = der_bytes
     ssock.cipher.return_value = cipher_tuple
@@ -361,7 +361,7 @@ def _make_mock_ssock(der_bytes=b"FAKE_DER", cipher_tuple=("TLS_AES_256_GCM_SHA38
 
 
 def _make_mock_sock():
-    """Crée un mock de socket.socket avec context manager."""
+    """Create a mock socket.socket with context manager."""
     sock = MagicMock()
     sock.__enter__ = MagicMock(return_value=sock)
     sock.__exit__ = MagicMock(return_value=False)
@@ -370,7 +370,7 @@ def _make_mock_sock():
 
 class TestFetchCertSync:
     def test_successful_verified_connection(self):
-        """Connexion réussie avec vérification SSL — verify=True au premier essai."""
+        """Successful connection with SSL verification — verify=True on the first attempt."""
         mock_sock = _make_mock_sock()
         mock_ssock = _make_mock_ssock()
         mock_ctx = MagicMock()
@@ -393,17 +393,17 @@ class TestFetchCertSync:
         ):
             result = _fetch_cert_sync("example.com")
 
-        # Vérifie que _parse_cert_der est appelé avec les bytes DER
+        # Verify that _parse_cert_der is called with the DER bytes
         mock_parse.assert_called_once_with(b"FAKE_DER")
-        # Vérifie les champs ajoutés par _fetch_cert_sync
+        # Verify the fields added by _fetch_cert_sync
         assert result["protocol"] == "TLSv1.3"
         assert result["cipher"] == "TLS_AES_256_GCM_SHA384"
         assert result["verified"] is True
-        # Vérifie que la connexion est faite sur le port 443
+        # Verify that the connection is made on port 443
         mock_conn.assert_called_once_with(("example.com", 443), timeout=10)
 
     def test_fallback_to_unverified_on_cert_error(self):
-        """SSLCertVerificationError sur verify=True → retry avec verify=False."""
+        """SSLCertVerificationError on verify=True → retry with verify=False."""
         mock_sock = _make_mock_sock()
         mock_ssock = _make_mock_ssock()
 
@@ -431,12 +431,12 @@ class TestFetchCertSync:
             result = _fetch_cert_sync("example.com")
 
         assert result["verified"] is False
-        # La deuxième tentative désactive la vérification
+        # The second attempt disables verification
         assert ctx_unverified.check_hostname is False
         assert ctx_unverified.verify_mode == ssl.CERT_NONE
 
     def test_raises_when_both_attempts_fail(self):
-        """SSLCertVerificationError sur les deux tentatives → raise."""
+        """SSLCertVerificationError on both attempts → raise."""
         mock_sock = _make_mock_sock()
 
         ctx_verified = MagicMock()
@@ -453,7 +453,7 @@ class TestFetchCertSync:
                 _fetch_cert_sync("bad.example.com")
 
     def test_cipher_returns_none(self):
-        """cipher() retourne None → cipher vide dans le résultat."""
+        """cipher() returns None → empty cipher in the result."""
         mock_sock = _make_mock_sock()
         mock_ssock = _make_mock_ssock()
         mock_ssock.cipher.return_value = None
@@ -478,7 +478,7 @@ class TestFetchCertSync:
         assert result["cipher"] == ""
 
     def test_version_returns_none(self):
-        """version() retourne None → protocol vide dans le résultat."""
+        """version() returns None → empty protocol in the result."""
         mock_sock = _make_mock_sock()
         mock_ssock = _make_mock_ssock()
         mock_ssock.version.return_value = None
@@ -503,19 +503,19 @@ class TestFetchCertSync:
         assert result["protocol"] == ""
 
     def test_connection_refused_propagates(self):
-        """socket.create_connection échoue → l'exception remonte."""
+        """socket.create_connection fails → the exception propagates."""
         with patch("socket.create_connection", side_effect=ConnectionRefusedError("refused")):
             with pytest.raises(ConnectionRefusedError):
                 _fetch_cert_sync("down.example.com")
 
     def test_timeout_propagates(self):
-        """socket.create_connection timeout → l'exception remonte."""
+        """socket.create_connection timeout → the exception propagates."""
         with patch("socket.create_connection", side_effect=socket.timeout("timed out")):
             with pytest.raises(socket.timeout):
                 _fetch_cert_sync("slow.example.com")
 
     def test_non_ssl_error_on_verify_true_propagates(self):
-        """Une erreur non-SSL sur verify=True ne déclenche pas le fallback."""
+        """A non-SSL error on verify=True does not trigger the fallback."""
         mock_sock = _make_mock_sock()
         mock_ctx = MagicMock()
         mock_ctx.wrap_socket.side_effect = OSError("Network unreachable")
@@ -529,7 +529,7 @@ class TestFetchCertSync:
 
 
 # ===================================================================
-# _parse_cert_der — parsing de certificat DER avec cryptography
+# _parse_cert_der — DER certificate parsing with cryptography
 # ===================================================================
 
 
@@ -541,7 +541,7 @@ def _generate_self_signed_der(
     use_ec=False,
     hash_algo=None,
 ):
-    """Génère un vrai certificat DER auto-signé pour les tests."""
+    """Generate a real self-signed DER certificate for the tests."""
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
@@ -583,7 +583,7 @@ def _generate_self_signed_der(
 
 class TestParseCertDer:
     def test_rsa_cert_basic_fields(self):
-        """Parse un cert RSA avec CN, issuer, et date d'expiration."""
+        """Parse an RSA cert with CN, issuer, and expiry date."""
         der = _generate_self_signed_der(cn="test.com", key_size=2048)
         info = _parse_cert_der(der)
 
@@ -596,7 +596,7 @@ class TestParseCertDer:
         assert info["is_wildcard"] is False
 
     def test_ec_cert_detected(self):
-        """Parse un cert EC — key_type=EC, key_size=256."""
+        """Parse an EC cert — key_type=EC, key_size=256."""
         der = _generate_self_signed_der(cn="ec.test.com", use_ec=True)
         info = _parse_cert_der(der)
 
@@ -605,7 +605,7 @@ class TestParseCertDer:
         assert info["subject_cn"] == "ec.test.com"
 
     def test_rsa_4096(self):
-        """Parse un cert RSA 4096 bits."""
+        """Parse a 4096-bit RSA cert."""
         der = _generate_self_signed_der(cn="big.test.com", key_size=4096)
         info = _parse_cert_der(der)
 
@@ -613,7 +613,7 @@ class TestParseCertDer:
         assert info["key_size"] == 4096
 
     def test_wildcard_san_detected(self):
-        """SAN avec *.example.com → is_wildcard=True."""
+        """SAN with *.example.com → is_wildcard=True."""
         der = _generate_self_signed_der(
             cn="example.com",
             sans=["example.com", "*.example.com"],
@@ -623,7 +623,7 @@ class TestParseCertDer:
         assert info["is_wildcard"] is True
 
     def test_san_without_wildcard(self):
-        """SAN sans wildcard → is_wildcard=False."""
+        """SAN without wildcard → is_wildcard=False."""
         der = _generate_self_signed_der(
             cn="example.com",
             sans=["example.com", "www.example.com"],
@@ -633,14 +633,14 @@ class TestParseCertDer:
         assert info["is_wildcard"] is False
 
     def test_no_san_extension(self):
-        """Pas d'extension SAN → is_wildcard=False, pas d'erreur."""
+        """No SAN extension → is_wildcard=False, no error."""
         der = _generate_self_signed_der(cn="nosan.com", sans=None)
         info = _parse_cert_der(der)
 
         assert info["is_wildcard"] is False
 
     def test_different_issuer_and_subject(self):
-        """Issuer != Subject → les deux CN sont correctement extraits."""
+        """Issuer != Subject → both CNs are correctly extracted."""
         der = _generate_self_signed_der(cn="site.com", issuer_cn="My CA")
         info = _parse_cert_der(der)
 
@@ -648,11 +648,11 @@ class TestParseCertDer:
         assert info["issuer_cn"] == "My CA"
 
     def test_sha1_signature_detected(self):
-        """Certificat avec sig_algo SHA-1 — cryptography récent interdit SHA-1 pour signer,
-        donc on mocke signature_hash_algorithm directement."""
+        """Certificate with sig_algo SHA-1 — recent cryptography forbids SHA-1 for signing,
+        so we mock signature_hash_algorithm directly."""
         from cryptography.hazmat.primitives import hashes
 
-        # Générer un cert normal, puis patcher l'attribut signature_hash_algorithm
+        # Generate a normal cert, then patch the signature_hash_algorithm attribute
         der = _generate_self_signed_der(cn="old.com")
         from cryptography import x509 as cx509
 
@@ -664,7 +664,7 @@ class TestParseCertDer:
         assert "sha1" in info["sig_algo"].lower()
 
     def test_sha512_signature_detected(self):
-        """Certificat signé avec SHA-512."""
+        """Certificate signed with SHA-512."""
         from cryptography.hazmat.primitives import hashes
         der = _generate_self_signed_der(cn="strong.com", hash_algo=hashes.SHA512())
         info = _parse_cert_der(der)
@@ -672,14 +672,14 @@ class TestParseCertDer:
         assert "sha512" in info["sig_algo"].lower()
 
     def test_no_cn_in_subject(self):
-        """Certificat sans CN dans le subject → subject_cn vide."""
+        """Certificate without CN in the subject → empty subject_cn."""
         from cryptography import x509
         from cryptography.x509.oid import NameOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        # Subject sans CN — seulement Organization
+        # Subject without CN — only Organization
         subject = x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test Org")])
         issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Issuer CA")])
 
@@ -701,7 +701,7 @@ class TestParseCertDer:
         assert info["issuer_cn"] == "Issuer CA"
 
     def test_no_cn_in_issuer(self):
-        """Certificat sans CN dans l'issuer → issuer_cn vide."""
+        """Certificate without CN in the issuer → empty issuer_cn."""
         from cryptography import x509
         from cryptography.x509.oid import NameOID
         from cryptography.hazmat.primitives import hashes, serialization
@@ -730,15 +730,15 @@ class TestParseCertDer:
 
 
 # ===================================================================
-# _parse_cert_der — fallback sans cryptography
+# _parse_cert_der — fallback without cryptography
 # ===================================================================
 
 
 class TestParseCertDerFallback:
     def test_import_error_returns_safe_defaults(self):
-        """Si cryptography n'est pas installé → fallback avec des valeurs vides."""
+        """If cryptography is not installed → fallback with empty values."""
         with patch.dict("sys.modules", {"cryptography": None, "cryptography.x509": None}):
-            # Force l'ImportError en patchant l'import dans la fonction
+            # Force the ImportError by patching the import inside the function
             import builtins
             original_import = builtins.__import__
 
@@ -756,19 +756,19 @@ class TestParseCertDerFallback:
         assert info["key_type"] == ""
         assert info["sig_algo"] == ""
         assert info["is_wildcard"] is False
-        # not_after est "now" — juste vérifier que c'est un datetime récent
+        # not_after is "now" — just verify it's a recent datetime
         assert isinstance(info["not_after"], datetime)
         assert (datetime.now(timezone.utc) - info["not_after"]).total_seconds() < 5
 
 
 # ===================================================================
-# _get_cert_info — wrapper async
+# _get_cert_info — async wrapper
 # ===================================================================
 
 
 class TestGetCertInfo:
     async def test_delegates_to_fetch_cert_sync(self):
-        """_get_cert_info appelle _fetch_cert_sync via run_in_executor."""
+        """_get_cert_info calls _fetch_cert_sync via run_in_executor."""
         expected = {"protocol": "TLSv1.3", "cipher": "AES256", "verified": True}
 
         with patch("app.scanners.tls._fetch_cert_sync", return_value=expected) as mock:
@@ -778,32 +778,32 @@ class TestGetCertInfo:
         assert result == expected
 
     async def test_propagates_exception(self):
-        """Les exceptions de _fetch_cert_sync remontent correctement."""
+        """Exceptions from _fetch_cert_sync propagate correctly."""
         with patch("app.scanners.tls._fetch_cert_sync", side_effect=ConnectionRefusedError("nope")):
             with pytest.raises(ConnectionRefusedError):
                 await _get_cert_info("down.example.com")
 
 
 # ===================================================================
-# _check_wildcard_cert — détection de certificats wildcard
+# _check_wildcard_cert — wildcard certificate detection
 # ===================================================================
 
 
 class TestCheckWildcardCert:
     def test_no_wildcard(self):
-        """SANs sans wildcard → pas de finding."""
+        """SANs without wildcard → no finding."""
         findings = []
         _check_wildcard_cert({"sans": ["example.com", "www.example.com"]}, findings)
         assert len(findings) == 0
 
     def test_no_sans(self):
-        """Pas de SANs → pas de finding."""
+        """No SANs → no finding."""
         findings = []
         _check_wildcard_cert({"sans": []}, findings)
         assert len(findings) == 0
 
     def test_normal_wildcard_medium(self):
-        """Wildcard standard *.example.com → finding medium."""
+        """Standard wildcard *.example.com → medium finding."""
         findings = []
         _check_wildcard_cert({"sans": ["*.example.com", "example.com"]}, findings)
         assert len(findings) == 1
@@ -811,7 +811,7 @@ class TestCheckWildcardCert:
         assert "wildcard" in findings[0].title.lower()
 
     def test_overly_broad_wildcard_high(self):
-        """Wildcard sur TLD *.com → finding high (excessivement large)."""
+        """Wildcard on TLD *.com → high finding (overly broad)."""
         findings = []
         _check_wildcard_cert({"sans": ["*.com"]}, findings)
         assert len(findings) == 1
@@ -819,39 +819,39 @@ class TestCheckWildcardCert:
         assert "large" in findings[0].title.lower() or "excessivement" in findings[0].title.lower()
 
     def test_multiple_wildcards(self):
-        """Plusieurs wildcards → un seul finding medium."""
+        """Multiple wildcards → a single medium finding."""
         findings = []
         _check_wildcard_cert({"sans": ["*.example.com", "*.api.example.com"]}, findings)
         assert len(findings) == 1
         assert findings[0].severity == "medium"
 
     def test_sans_key_missing(self):
-        """Pas de clé 'sans' → pas de crash."""
+        """No 'sans' key → no crash."""
         findings = []
         _check_wildcard_cert({}, findings)
         assert len(findings) == 0
 
 
 # ===================================================================
-# _check_san_coverage — domaine couvert par les SANs
+# _check_san_coverage — domain covered by the SANs
 # ===================================================================
 
 
 class TestCheckSanCoverage:
     def test_domain_covered_by_exact_match(self):
-        """Le domaine est dans les SANs → pas de finding."""
+        """The domain is in the SANs → no finding."""
         findings = []
         _check_san_coverage({"sans": ["example.com", "www.example.com"]}, "example.com", findings)
         assert len(findings) == 0
 
     def test_domain_covered_by_wildcard(self):
-        """Le domaine est couvert par un wildcard → pas de finding."""
+        """The domain is covered by a wildcard → no finding."""
         findings = []
         _check_san_coverage({"sans": ["*.example.com"]}, "www.example.com", findings)
         assert len(findings) == 0
 
     def test_domain_not_covered(self):
-        """Le domaine n'est pas couvert → finding medium."""
+        """The domain is not covered → medium finding."""
         findings = []
         _check_san_coverage({"sans": ["other.com", "www.other.com"]}, "example.com", findings)
         assert len(findings) == 1
@@ -859,7 +859,7 @@ class TestCheckSanCoverage:
         assert "example.com" in findings[0].title
 
     def test_no_sans_at_all(self):
-        """Pas de SANs → finding low."""
+        """No SANs → low finding."""
         findings = []
         _check_san_coverage({"sans": []}, "example.com", findings)
         assert len(findings) == 1
@@ -867,7 +867,7 @@ class TestCheckSanCoverage:
         assert "SAN" in findings[0].title
 
     def test_sans_key_missing(self):
-        """Pas de clé 'sans' → finding low (traité comme vide)."""
+        """No 'sans' key → low finding (treated as empty)."""
         findings = []
         _check_san_coverage({}, "example.com", findings)
         assert len(findings) == 1

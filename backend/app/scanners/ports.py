@@ -1,4 +1,4 @@
-"""Scanner de ports via nmap — connect scan non-privilégié."""
+"""Port scanner via nmap — unprivileged connect scan."""
 
 import asyncio
 import json
@@ -9,9 +9,9 @@ import xml.etree.ElementTree as ET
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 
 NMAP_PATH = os.environ.get("NMAP_PATH", "/usr/bin/nmap")
-TIMEOUT = 120  # secondes max pour le scan
+TIMEOUT = 120  # max seconds for the scan
 
-# Ports considérés comme dangereux s'ils sont exposés sur Internet
+# Ports considered dangerous if exposed on the Internet
 DANGEROUS_PORTS = {
     21: "FTP",
     23: "Telnet",
@@ -41,7 +41,7 @@ class PortsScanner(BaseScanner):
     async def scan(self, domain: str) -> ScanResult:
         findings: list[FindingData] = []
 
-        # WHOIS en parallèle avec nmap (pas besoin de nmap)
+        # WHOIS in parallel with nmap (does not require nmap)
         whois_task = _check_whois(domain, findings)
 
         if not is_available():
@@ -58,7 +58,7 @@ class PortsScanner(BaseScanner):
         if not open_ports:
             return ScanResult.from_findings(findings)
 
-        # Ports dangereux exposés
+        # Exposed dangerous ports
         for port_info in open_ports:
             port_num = port_info["port"]
             if port_num in DANGEROUS_PORTS:
@@ -72,7 +72,7 @@ class PortsScanner(BaseScanner):
                     raw_data=json.dumps(port_info),
                 ))
 
-        # Résumé des ports ouverts (info)
+        # Summary of open ports (info)
         non_standard = [
             p for p in open_ports
             if p["port"] not in (80, 443) and p["port"] not in DANGEROUS_PORTS
@@ -93,20 +93,20 @@ class PortsScanner(BaseScanner):
 
 
 async def _run_nmap(domain: str) -> list[dict] | None:
-    """Exécute nmap et retourne la liste des ports détectés."""
+    """Runs nmap and returns the list of detected ports."""
     with tempfile.NamedTemporaryFile(suffix=".xml", delete=False) as tmp:
         xml_path = tmp.name
 
     try:
         proc = await asyncio.create_subprocess_exec(
             NMAP_PATH,
-            "-sT",              # connect scan (pas besoin de root)
+            "-sT",              # connect scan (no root required)
             "--top-ports", "100",
-            "-T4",              # timing agressif mais raisonnable
-            "-sV",              # détection de version
-            "--version-light",  # version rapide (niveau 2)
-            "-oX", xml_path,    # sortie XML
-            "--open",           # ne montrer que les ports ouverts
+            "-T4",              # aggressive but reasonable timing
+            "-sV",              # version detection
+            "--version-light",  # fast version detection (level 2)
+            "-oX", xml_path,    # XML output
+            "--open",           # only show open ports
             domain,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
@@ -127,7 +127,7 @@ async def _run_nmap(domain: str) -> list[dict] | None:
 
 
 def _parse_nmap_xml(xml_path: str) -> list[dict]:
-    """Parse la sortie XML de nmap."""
+    """Parses the XML output of nmap."""
     ports: list[dict] = []
     try:
         tree = ET.parse(xml_path)
@@ -167,7 +167,7 @@ def _parse_nmap_xml(xml_path: str) -> list[dict]:
 
 
 async def _check_whois(domain: str, findings: list[FindingData]) -> None:
-    """Récupère les infos WHOIS et signale les domaines récemment créés."""
+    """Retrieves WHOIS info and flags recently created domains."""
     loop = asyncio.get_event_loop()
     try:
         info = await asyncio.wait_for(
@@ -193,7 +193,7 @@ async def _check_whois(domain: str, findings: list[FindingData]) -> None:
                 raw_data=json.dumps(info),
             ))
 
-        # Domaine créé il y a moins de 30 jours = suspect
+        # Domain created less than 30 days ago = suspicious
         if info.get("age_days") is not None and info["age_days"] < 30:
             findings.append(FindingData(
                 severity="medium",
@@ -208,7 +208,7 @@ async def _check_whois(domain: str, findings: list[FindingData]) -> None:
 
 
 def _whois_sync(domain: str) -> dict | None:
-    """Requête WHOIS bloquante (à exécuter dans un executor)."""
+    """Blocking WHOIS query (to be run in an executor)."""
     try:
         import whois
         w = whois.whois(domain)

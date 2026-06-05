@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.reputation — ReputationScanner, AbuseIPDB, Spamhaus."""
+"""Tests for app.scanners.reputation — ReputationScanner, AbuseIPDB, Spamhaus."""
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -157,7 +157,7 @@ class TestCheckAbuseIPDB:
                 })
             )
             await _check_abuseipdb(["1.2.3.4"], "fake-key", findings)
-        assert len(findings) == 0  # score <= 5 → continue
+        assert len(findings) == 0  # score <= 5 → skip
 
     async def test_multiple_ips(self):
         import respx
@@ -174,7 +174,7 @@ class TestCheckAbuseIPDB:
                 }),
             ]
             await _check_abuseipdb(["1.2.3.4", "5.6.7.8"], "fake-key", findings)
-        assert len(findings) == 1  # seule la première IP a un score élevé
+        assert len(findings) == 1  # only the first IP has a high score
 
     async def test_api_error_continues_silently(self):
         import respx
@@ -228,7 +228,7 @@ class TestCheckSpamhausDns:
         with patch("socket.gethostbyname") as mock:
             mock.side_effect = socket.gaierror("NXDOMAIN")
             _check_spamhaus_dns(["93.184.216.34"], findings)
-            # Le query devrait être 34.216.184.93.zen.spamhaus.org
+            # The query should be 34.216.184.93.zen.spamhaus.org
             mock.assert_called_with("34.216.184.93.zen.spamhaus.org")
 
     def test_ipv6_skipped(self):

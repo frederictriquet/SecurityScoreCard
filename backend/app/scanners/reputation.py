@@ -79,12 +79,12 @@ async def _check_abuseipdb(ips: list[str], api_key: str, findings: list) -> None
 def _check_spamhaus_dns(ips: list[str], findings: list) -> None:
     for ip in ips:
         if ":" in ip:
-            continue  # IPv6 non supporté par Spamhaus ZEN via lookup simple
+            continue  # IPv6 not supported by Spamhaus ZEN via simple lookup
         reversed_ip = ".".join(reversed(ip.split(".")))
         query = f"{reversed_ip}.{SPAMHAUS_ZEN}"
         try:
             socket.gethostbyname(query)
-            # Si résolu → IP listée
+            # If resolved → IP is listed
             findings.append(FindingData(
                 severity="high",
                 title=f"IP {ip} référencée dans Spamhaus ZEN",
@@ -92,4 +92,4 @@ def _check_spamhaus_dns(ips: list[str], findings: list) -> None:
                 remediation="Vérifier l'IP sur https://check.spamhaus.org et demander une suppression si légitime.",
             ))
         except socket.gaierror:
-            pass  # NXDOMAIN = pas dans la liste, c'est bien
+            pass  # NXDOMAIN = not in the list, which is good

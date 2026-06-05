@@ -151,7 +151,7 @@ class DnsScanner(BaseScanner):
                 description="Le domaine ne semble pas recevoir d'emails (absence de MX).",
             ))
 
-    # --- Phase 1 : nouveaux checks ---
+    # --- Phase 1: new checks ---
 
     async def _check_caa(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
@@ -185,12 +185,12 @@ class DnsScanner(BaseScanner):
             mx_answers = await resolver.resolve(domain, "MX")
             mx_hosts = [str(r.exchange).rstrip(".") for r in mx_answers]
         except Exception:
-            return  # Pas de MX, pas de DANE à vérifier
+            return  # No MX, no DANE to check
 
         for mx_host in mx_hosts[:3]:
             try:
                 await resolver.resolve(f"_25._tcp.{mx_host}", "TLSA")
-                return  # TLSA trouvé, OK
+                return  # TLSA found, OK
             except Exception:
                 continue
 
@@ -229,7 +229,7 @@ class DnsScanner(BaseScanner):
         except Exception:
             pass
 
-    # --- Phase 3 : checks DNS supplémentaires ---
+    # --- Phase 3: additional DNS checks ---
 
     async def _check_tls_rpt(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
@@ -313,7 +313,7 @@ class DnsScanner(BaseScanner):
             ))
             return
 
-        # Vérifier si les NS sont sur des réseaux /24 distincts
+        # Check whether the NS are on distinct /24 networks
         ns_ips: list[str] = []
         for ns in ns_hosts[:4]:
             try:
@@ -421,7 +421,7 @@ class DnsScanner(BaseScanner):
 
 
 def _try_axfr(ns_host: str, domain: str) -> bool:
-    """Tente un transfert de zone AXFR (bloquant, à exécuter dans un executor)."""
+    """Attempt an AXFR zone transfer (blocking, to be run in an executor)."""
     import dns.query
     import dns.zone
     try:

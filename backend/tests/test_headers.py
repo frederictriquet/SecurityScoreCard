@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.headers — Headers, cookies, SRI, mixed content, CORS, fichiers exposés."""
+"""Tests for app.scanners.headers — Headers, cookies, SRI, mixed content, CORS, exposed files."""
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -84,7 +84,7 @@ class TestHTMLParserSRI:
             '<script src="https://cdn.example.org/a.js"></script>'
             '<script src="https://cdn.example.org/b.js"></script>'
         )
-        assert len(parser.sri_issues) == 1  # même (tag, host) dédupliqué
+        assert len(parser.sri_issues) == 1  # same (tag, host) deduplicated
 
     def test_different_hosts_not_deduped(self):
         parser = _HTMLSecurityParser("example.com")
@@ -172,7 +172,7 @@ class TestHTMLParserMixedContent:
     def test_combined_sri_and_mixed_content(self):
         parser = _HTMLSecurityParser("example.com")
         parser.feed('<script src="http://cdn.example.org/lib.js"></script>')
-        assert len(parser.sri_issues) == 1  # cross-origin sans integrity
+        assert len(parser.sri_issues) == 1  # cross-origin without integrity
         assert len(parser.mixed_content) == 1  # HTTP
 
 
@@ -242,14 +242,14 @@ class TestAnalyzeCookie:
         assert len(findings) == 3
         findings2 = []
         _analyze_cookie("session=abc", "/login", seen, findings2)
-        assert len(findings2) == 0  # déjà vu
+        assert len(findings2) == 0  # already seen
 
     def test_different_cookie_names_not_deduped(self):
         findings = []
         seen = set()
         _analyze_cookie("session=abc", "/", seen, findings)
         _analyze_cookie("token=xyz", "/", seen, findings)
-        assert len(findings) == 6  # 3 issues par cookie
+        assert len(findings) == 6  # 3 issues per cookie
 
     def test_cookie_name_extracted_correctly(self):
         findings = []
@@ -431,7 +431,7 @@ class TestCheckExposedFiles:
         assert env_findings[0].severity == "critical"
 
     async def test_env_html_response_filtered(self):
-        """Un .env qui renvoie du HTML est probablement une page d'erreur custom."""
+        """A .env returning HTML is probably a custom error page."""
         import respx
 
         findings = []
@@ -496,7 +496,7 @@ class TestCheckExposedFiles:
         assert wc_findings[0].severity == "high"
 
     async def test_web_config_without_signature_filtered(self):
-        """web.config sans la signature <configuration → pas de finding."""
+        """web.config without the <configuration signature → no finding."""
         import respx
 
         findings = []
@@ -553,7 +553,7 @@ class TestCheckExposedFiles:
             await _check_exposed_files("https://example.com", findings)
 
         sec_findings = [f for f in findings if "security.txt" in f.title]
-        assert len(sec_findings) == 0  # Pas de finding car présent
+        assert len(sec_findings) == 0  # No finding because present
 
     async def test_security_txt_absent(self):
         import respx
@@ -585,7 +585,7 @@ class TestCheckExposedFiles:
         assert sec_findings[0].severity == "info"
 
     async def test_custom_404_baseline_filtering(self):
-        """Un serveur qui renvoie 200 pour tout avec le même contenu → filtré via baseline."""
+        """A server returning 200 for everything with the same content → filtered via baseline."""
         import respx
 
         generic_html = "<html><body>Page not found</body></html>"
@@ -594,7 +594,7 @@ class TestCheckExposedFiles:
             respx.get("https://example.com/a-path-that-should-not-exist-82719").mock(
                 return_value=httpx.Response(200, text=generic_html)
             )
-            # .git/HEAD renvoie le même contenu (custom 404)
+            # .git/HEAD returns the same content (custom 404)
             respx.get("https://example.com/.git/HEAD").mock(
                 return_value=httpx.Response(200, text=generic_html)
             )
@@ -614,7 +614,7 @@ class TestCheckExposedFiles:
             )
             await _check_exposed_files("https://example.com", findings)
 
-        # Seul security.txt absent devrait apparaître
+        # Only the missing security.txt should appear
         file_findings = [f for f in findings if "security.txt" not in f.title]
         assert len(file_findings) == 0
 
@@ -641,7 +641,7 @@ class TestHeadersFullScan:
         }
 
         with respx.mock:
-            # Main page (path exact — en premier)
+            # Main page (exact path — first)
             respx.get(url__eq="https://example.com/").mock(
                 return_value=httpx.Response(200, headers=headers, text="<html></html>")
             )
@@ -649,7 +649,7 @@ class TestHeadersFullScan:
             respx.options(url__regex=r"https://example\.com").mock(
                 return_value=httpx.Response(200)
             )
-            # Toutes les autres HTTPS (sous-paths) → 404
+            # All other HTTPS (sub-paths) → 404
             respx.get(url__regex=r"https://example\.com").mock(
                 return_value=httpx.Response(404)
             )
@@ -659,7 +659,7 @@ class TestHeadersFullScan:
             )
 
             result = await scanner.scan("example.com")
-            # Seul security.txt absent devrait rester
+            # Only the missing security.txt should remain
             non_info_findings = [f for f in result.findings if f.severity != "info"]
             assert len(non_info_findings) == 0
 
@@ -678,7 +678,7 @@ class TestHeadersFullScan:
         import respx
 
         with respx.mock:
-            # Aucun header de sécurité
+            # No security header
             respx.get(url__regex=r"https://example\.com.*").mock(
                 return_value=httpx.Response(200, text="<html></html>")
             )
@@ -689,7 +689,7 @@ class TestHeadersFullScan:
             result = await scanner.scan("example.com")
             titles = [f.title for f in result.findings]
 
-            # Vérifie que tous les headers manquants sont détectés
+            # Verify that all missing headers are detected
             for h in SECURITY_HEADERS:
                 assert h["title"] in titles, f"Missing finding for {h['name']}"
 
@@ -700,7 +700,7 @@ class TestHeadersFullScan:
             "server": "Apache/2.4.41",
             "x-powered-by": "Express",
         }
-        # Ajouter tous les headers de sécurité pour ne pas polluer
+        # Add all security headers so as not to pollute
         for h in SECURITY_HEADERS:
             headers[h["name"]] = "test-value"
 
@@ -722,13 +722,13 @@ class TestHeadersFullScan:
 
 
 # ===================================================================
-# _check_cookies — orchestration multi-path réelle
+# _check_cookies — real multi-path orchestration
 # ===================================================================
 
 
 class TestCheckCookies:
     async def test_probes_all_cookie_paths(self):
-        """Vérifie que _check_cookies interroge tous les COOKIE_PROBE_PATHS."""
+        """Verify that _check_cookies queries all COOKIE_PROBE_PATHS."""
         import respx
 
         findings = []
@@ -743,11 +743,11 @@ class TestCheckCookies:
 
             await _check_cookies("https://example.com", findings, seen)
 
-        # Pas de cookies posés → pas de findings
+        # No cookies set → no findings
         assert len(findings) == 0
 
     async def test_cookies_from_multiple_paths_deduped(self):
-        """Le même cookie posé sur / et /login ne génère qu'un seul finding."""
+        """The same cookie set on / and /login generates only one finding."""
         import respx
 
         findings = []
@@ -764,12 +764,12 @@ class TestCheckCookies:
 
             await _check_cookies("https://example.com", findings, seen)
 
-        # 3 issues (Secure, HttpOnly, SameSite) mais dédupliquées sur le nom
+        # 3 issues (Secure, HttpOnly, SameSite) but deduplicated on the name
         assert len(findings) == 3
         assert all("session" in f.title for f in findings)
 
     async def test_different_cookies_from_different_paths(self):
-        """Des cookies différents sur des paths différents sont tous détectés."""
+        """Different cookies on different paths are all detected."""
         import respx
 
         findings = []
@@ -788,7 +788,7 @@ class TestCheckCookies:
                     headers={"set-cookie": "session=xyz"},
                 )
             )
-            # Les autres paths ne posent pas de cookies
+            # The other paths do not set cookies
             for path in COOKIE_PROBE_PATHS:
                 if path not in ("/", "/login"):
                     respx.get(f"https://example.com{path}").mock(
@@ -803,25 +803,25 @@ class TestCheckCookies:
         assert cookie_names == {"csrftoken", "session"}
 
     async def test_cookie_probe_path_exception_continues(self):
-        """Une exception sur un path ne bloque pas les autres (L.343-344)."""
+        """An exception on one path does not block the others (L.343-344)."""
         import respx
 
         findings = []
         seen = set()
 
         with respx.mock:
-            # Le premier path échoue
+            # The first path fails
             respx.get("https://example.com/").mock(
                 side_effect=httpx.ConnectError("timeout")
             )
-            # /login pose un cookie
+            # /login sets a cookie
             respx.get("https://example.com/login").mock(
                 return_value=httpx.Response(
                     200,
                     headers={"set-cookie": "sess=abc"},
                 )
             )
-            # Les autres paths OK sans cookies
+            # The other paths OK without cookies
             for path in COOKIE_PROBE_PATHS:
                 if path not in ("/", "/login"):
                     respx.get(f"https://example.com{path}").mock(
@@ -830,12 +830,12 @@ class TestCheckCookies:
 
             await _check_cookies("https://example.com", findings, seen)
 
-        # Le cookie de /login est quand même détecté malgré l'erreur sur /
+        # The /login cookie is still detected despite the error on /
         assert len(findings) > 0
         assert any("sess" in f.title for f in findings)
 
     async def test_cookies_in_redirect_history(self):
-        """Les cookies posés dans les réponses de redirection (resp.history) sont analysés (L.348)."""
+        """Cookies set in redirect responses (resp.history) are analyzed (L.348)."""
         import respx
 
         findings = []
@@ -851,14 +851,14 @@ class TestCheckCookies:
         final_resp = httpx.Response(200)
 
         with respx.mock:
-            # Simuler une redirection qui pose un cookie
+            # Simulate a redirect that sets a cookie
             respx.get("https://example.com/login").mock(
                 return_value=httpx.Response(
                     200,
                     headers={"set-cookie": "after_login=xyz"},
                 )
             )
-            # Les autres paths sans cookies
+            # The other paths without cookies
             for path in COOKIE_PROBE_PATHS:
                 if path != "/login":
                     respx.get(f"https://example.com{path}").mock(
@@ -870,19 +870,19 @@ class TestCheckCookies:
         assert any("after_login" in f.title for f in findings)
 
     async def test_http_vs_https_cookie_probing(self):
-        """Le scan complet probe HTTP et HTTPS — un cookie HTTP sans Secure est détecté."""
+        """The full scan probes HTTP and HTTPS — an HTTP cookie without Secure is detected."""
         import respx
 
         findings = []
         seen = set()
 
         with respx.mock:
-            # HTTPS — pas de cookies
+            # HTTPS — no cookies
             for path in COOKIE_PROBE_PATHS:
                 respx.get(f"https://example.com{path}").mock(
                     return_value=httpx.Response(200)
                 )
-            # HTTP — pose un cookie
+            # HTTP — sets a cookie
             respx.get("http://example.com/").mock(
                 return_value=httpx.Response(
                     200,
@@ -901,37 +901,37 @@ class TestCheckCookies:
 
 
 # ===================================================================
-# _analyze_cookie — cas limites
+# _analyze_cookie — edge cases
 # ===================================================================
 
 
 class TestAnalyzeCookieEdgeCases:
     def test_empty_cookie_string(self):
-        """Cookie vide → pas de crash, pas de finding."""
+        """Empty cookie → no crash, no finding."""
         findings = []
         seen = set()
         _analyze_cookie("", "/", seen, findings)
-        # Le nom extrait sera "" — 3 findings pour les attributs manquants
-        # Ce n'est pas un "parts vide" car split(";") sur "" donne [""]
+        # The extracted name will be "" — 3 findings for the missing attributes
+        # This is not an "empty parts" case because split(";") on "" gives [""]
         assert isinstance(findings, list)
 
     def test_cookie_without_value(self):
-        """Cookie sans valeur (juste un nom) — ne crash pas."""
+        """Cookie without value (just a name) — does not crash."""
         findings = []
         seen = set()
         _analyze_cookie("trackingid", "/", seen, findings)
-        assert len(findings) == 3  # Secure, HttpOnly, SameSite manquants
+        assert len(findings) == 3  # Secure, HttpOnly, SameSite missing
         assert any("trackingid" in f.title for f in findings)
 
     async def test_multiple_set_cookie_headers(self):
-        """Plusieurs Set-Cookie dans une même réponse."""
+        """Multiple Set-Cookie in a single response."""
         import respx
 
         findings = []
         seen = set()
 
         with respx.mock:
-            # httpx.Response avec plusieurs set-cookie via headers list
+            # httpx.Response with multiple set-cookie via headers list
             respx.get("https://example.com/").mock(
                 return_value=httpx.Response(
                     200,
@@ -955,22 +955,22 @@ class TestAnalyzeCookieEdgeCases:
 
 
 # ===================================================================
-# _check_exposed_files — gestion d'erreurs
+# _check_exposed_files — error handling
 # ===================================================================
 
 
 class TestCheckExposedFilesErrors:
     async def test_baseline_request_exception(self):
-        """Exception sur la requête baseline → baseline_len=-1, on continue (L.287-288)."""
+        """Exception on the baseline request → baseline_len=-1, we continue (L.287-288)."""
         import respx
 
         findings = []
         with respx.mock:
-            # Baseline échoue
+            # Baseline fails
             respx.get("https://example.com/a-path-that-should-not-exist-82719").mock(
                 side_effect=httpx.ConnectError("timeout")
             )
-            # .git/HEAD exposé
+            # .git/HEAD exposed
             respx.get("https://example.com/.git/HEAD").mock(
                 return_value=httpx.Response(200, text="ref: refs/heads/main\n")
             )
@@ -988,12 +988,12 @@ class TestCheckExposedFilesErrors:
             )
             await _check_exposed_files("https://example.com", findings)
 
-        # .git/HEAD toujours détecté malgré le baseline en erreur
+        # .git/HEAD still detected despite the baseline error
         git_findings = [f for f in findings if "Git" in f.title]
         assert len(git_findings) == 1
 
     async def test_individual_file_check_exception(self):
-        """Exception sur un fichier individuel → continue les autres (L.317-318)."""
+        """Exception on an individual file → continues with the others (L.317-318)."""
         import respx
 
         findings = []
@@ -1001,11 +1001,11 @@ class TestCheckExposedFilesErrors:
             respx.get("https://example.com/a-path-that-should-not-exist-82719").mock(
                 return_value=httpx.Response(404)
             )
-            # .git/HEAD échoue
+            # .git/HEAD fails
             respx.get("https://example.com/.git/HEAD").mock(
                 side_effect=httpx.ReadTimeout("timeout")
             )
-            # .env est exposé
+            # .env is exposed
             respx.get("https://example.com/.env").mock(
                 return_value=httpx.Response(
                     200,
@@ -1024,12 +1024,12 @@ class TestCheckExposedFilesErrors:
             )
             await _check_exposed_files("https://example.com", findings)
 
-        # .env détecté malgré l'erreur sur .git/HEAD
+        # .env detected despite the error on .git/HEAD
         env_findings = [f for f in findings if ".env" in f.title]
         assert len(env_findings) == 1
 
     async def test_security_txt_check_exception(self):
-        """Exception sur security.txt → traité comme absent (L.325-326)."""
+        """Exception on security.txt → treated as missing (L.325-326)."""
         import respx
 
         findings = []
@@ -1049,7 +1049,7 @@ class TestCheckExposedFilesErrors:
             respx.get("https://example.com/web.config").mock(
                 return_value=httpx.Response(404)
             )
-            # security.txt échoue
+            # security.txt fails
             respx.get("https://example.com/.well-known/security.txt").mock(
                 side_effect=httpx.ConnectError("timeout")
             )
@@ -1060,7 +1060,7 @@ class TestCheckExposedFilesErrors:
         assert sec_findings[0].severity == "info"
 
     async def test_svn_exposed(self):
-        """SVN exposé est détecté (couverture complète des 4 fichiers)."""
+        """Exposed SVN is detected (full coverage of the 4 files)."""
         import respx
 
         findings = []
@@ -1095,13 +1095,13 @@ class TestCheckExposedFilesErrors:
 
 
 # ===================================================================
-# Full scan — SRI et mixed content via le chemin complet (L.208, L.219)
+# Full scan — SRI and mixed content via the full path (L.208, L.219)
 # ===================================================================
 
 
 class TestFullScanSRIAndMixedContent:
     async def test_sri_finding_emitted_through_full_scan(self, scanner):
-        """Le scan complet détecte le SRI manquant via le HTML parsé (L.207-208)."""
+        """The full scan detects the missing SRI via the parsed HTML (L.207-208)."""
         import respx
 
         html = '<html><script src="https://cdn.evil.org/lib.js"></script></html>'
@@ -1126,7 +1126,7 @@ class TestFullScanSRIAndMixedContent:
         assert "cdn.evil.org" in sri_findings[0].description
 
     async def test_mixed_content_finding_emitted_through_full_scan(self, scanner):
-        """Le scan complet détecte le mixed content via le HTML parsé (L.218-219)."""
+        """The full scan detects mixed content via the parsed HTML (L.218-219)."""
         import respx
 
         html = '<html><img src="http://insecure.org/img.png"></html>'
@@ -1150,7 +1150,7 @@ class TestFullScanSRIAndMixedContent:
         assert mc_findings[0].severity == "high"
 
     async def test_html_parse_exception_silenced(self, scanner):
-        """Une exception dans parser.feed() est silencée (L.204-205)."""
+        """An exception in parser.feed() is silenced (L.204-205)."""
         import respx
 
         sec_headers = {h["name"]: "value" for h in SECURITY_HEADERS}
@@ -1166,13 +1166,13 @@ class TestFullScanSRIAndMixedContent:
                 return_value=httpx.Response(200)
             )
 
-            # Patcher parser.feed pour lever une exception
+            # Patch parser.feed to raise an exception
             with patch.object(_HTMLSecurityParser, "feed", side_effect=Exception("parse error")):
                 result = await scanner.scan("example.com")
 
-            # Le scan continue malgré l'erreur de parsing
+            # The scan continues despite the parsing error
             assert result.score is not None
-            # Pas de SRI/mixed content findings (le parser a échoué)
+            # No SRI/mixed content findings (the parser failed)
             sri = [f for f in result.findings if "SRI" in f.title]
             mc = [f for f in result.findings if "Mixed" in f.title]
             assert len(sri) == 0
@@ -1180,13 +1180,13 @@ class TestFullScanSRIAndMixedContent:
 
 
 # ===================================================================
-# Full scan — insecure forms et sensitive comments (L.267, L.275)
+# Full scan — insecure forms and sensitive comments (L.267, L.275)
 # ===================================================================
 
 
 class TestFullScanInsecureFormsAndComments:
     async def test_insecure_form_finding_through_full_scan(self, scanner):
-        """Le scan complet détecte un formulaire soumis en HTTP (L.266-272)."""
+        """The full scan detects a form submitted over HTTP (L.266-272)."""
         import respx
 
         html = '<html><form action="http://evil.com/steal" method="post"><input></form></html>'
@@ -1214,7 +1214,7 @@ class TestFullScanInsecureFormsAndComments:
         assert "evil.com" in form_findings[0].description
 
     async def test_sensitive_comment_finding_through_full_scan(self, scanner):
-        """Le scan complet détecte un commentaire HTML sensible (L.274-280)."""
+        """The full scan detects a sensitive HTML comment (L.274-280)."""
         import respx
 
         html = '<html><!-- TODO: remove this password=admin123 --></html>'
@@ -1249,13 +1249,13 @@ class TestFullScanInsecureFormsAndComments:
 
 class TestFullScanCookieProbing:
     async def test_http_and_https_cookie_probing(self, scanner):
-        """Le scan complet probe les cookies sur HTTP et HTTPS (L.234-235)."""
+        """The full scan probes cookies over HTTP and HTTPS (L.234-235)."""
         import respx
 
         sec_headers = {h["name"]: "value" for h in SECURITY_HEADERS}
 
         with respx.mock:
-            # Page principale
+            # Main page
             respx.get("https://example.com").mock(
                 return_value=httpx.Response(200, headers=sec_headers, text="<html></html>")
             )
@@ -1263,7 +1263,7 @@ class TestFullScanCookieProbing:
             respx.get(url__regex=r"https://example\.com/(?!login|signin|sign-in|auth|account|admin).*").mock(
                 return_value=httpx.Response(404)
             )
-            # HTTPS cookie probing — /login pose un cookie
+            # HTTPS cookie probing — /login sets a cookie
             for path in COOKIE_PROBE_PATHS:
                 if path == "/login":
                     respx.get(f"https://example.com{path}").mock(
@@ -1276,7 +1276,7 @@ class TestFullScanCookieProbing:
                     respx.get(f"https://example.com{path}").mock(
                         return_value=httpx.Response(200)
                     )
-            # HTTP cookie probing — / pose un cookie non sécurisé
+            # HTTP cookie probing — / sets an insecure cookie
             respx.get("http://example.com/").mock(
                 return_value=httpx.Response(
                     200,
@@ -1291,42 +1291,42 @@ class TestFullScanCookieProbing:
 
             result = await scanner.scan("example.com")
 
-        # http_track sans Secure/HttpOnly/SameSite → findings
+        # http_track without Secure/HttpOnly/SameSite → findings
         http_cookie_findings = [f for f in result.findings if "http_track" in f.title]
         assert len(http_cookie_findings) == 3  # Secure, HttpOnly, SameSite
 
-        # https_sess est correct → pas de findings
+        # https_sess is correct → no findings
         https_cookie_findings = [f for f in result.findings if "https_sess" in f.title]
         assert len(https_cookie_findings) == 0
 
 
 # ===================================================================
-# _HTMLSecurityParser — formulaires insécurisés
+# _HTMLSecurityParser — insecure forms
 # ===================================================================
 
 
 class TestHTMLParserInsecureForms:
     def test_http_form_action_detected(self):
-        """Formulaire avec action HTTP → insecure_forms détecté."""
+        """Form with HTTP action → insecure_forms detected."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed('<form action="http://evil.com/submit" method="post"></form>')
         assert len(parser.insecure_forms) == 1
         assert "http://evil.com/submit" in parser.insecure_forms[0]
 
     def test_https_form_action_ok(self):
-        """Formulaire avec action HTTPS → pas de problème."""
+        """Form with HTTPS action → no problem."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed('<form action="https://example.com/submit" method="post"></form>')
         assert len(parser.insecure_forms) == 0
 
     def test_relative_form_action_ok(self):
-        """Formulaire avec action relative → pas de problème."""
+        """Form with relative action → no problem."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed('<form action="/submit" method="post"></form>')
         assert len(parser.insecure_forms) == 0
 
     def test_form_without_action_ok(self):
-        """Formulaire sans attribut action → pas de problème."""
+        """Form without action attribute → no problem."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed('<form method="post"></form>')
         assert len(parser.insecure_forms) == 0
@@ -1339,40 +1339,40 @@ class TestHTMLParserInsecureForms:
 
 class TestHTMLParserSensitiveComments:
     def test_password_in_comment(self):
-        """Commentaire contenant 'password' → détecté."""
+        """Comment containing 'password' → detected."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed("<!-- default password is admin123 -->")
         assert len(parser.sensitive_comments) == 1
         assert parser.sensitive_comments[0][0] == "password"
 
     def test_todo_in_comment(self):
-        """Commentaire contenant 'TODO' → détecté."""
+        """Comment containing 'TODO' → detected."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed("<!-- TODO: fix this security issue -->")
         assert len(parser.sensitive_comments) == 1
         assert parser.sensitive_comments[0][0] == "todo"
 
     def test_api_key_in_comment(self):
-        """Commentaire contenant 'api_key' → détecté."""
+        """Comment containing 'api_key' → detected."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed("<!-- api_key: sk_live_abc123 -->")
         assert len(parser.sensitive_comments) == 1
         assert parser.sensitive_comments[0][0] == "api_key"
 
     def test_harmless_comment_not_detected(self):
-        """Commentaire anodin → pas de détection."""
+        """Harmless comment → no detection."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed("<!-- This is a navigation menu -->")
         assert len(parser.sensitive_comments) == 0
 
     def test_multiple_keywords_single_match(self):
-        """Commentaire avec plusieurs mots-clés → une seule détection (premier match)."""
+        """Comment with multiple keywords → a single detection (first match)."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed("<!-- password: secret token=abc -->")
         assert len(parser.sensitive_comments) == 1
 
     def test_long_comment_truncated(self):
-        """Commentaire très long → excerpt tronqué à 120 chars."""
+        """Very long comment → excerpt truncated to 120 chars."""
         parser = _HTMLSecurityParser("example.com")
         parser.feed(f"<!-- password {'x' * 200} -->")
         assert len(parser.sensitive_comments) == 1
@@ -1380,13 +1380,13 @@ class TestHTMLParserSensitiveComments:
 
 
 # ===================================================================
-# X-XSS-Protection dans le scan complet
+# X-XSS-Protection in the full scan
 # ===================================================================
 
 
 class TestXXSSProtection:
     async def test_x_xss_protection_zero_detected(self, scanner):
-        """X-XSS-Protection: 0 → finding low."""
+        """X-XSS-Protection: 0 → low finding."""
         import respx
 
         sec_headers = {h["name"]: "value" for h in SECURITY_HEADERS}
@@ -1413,7 +1413,7 @@ class TestXXSSProtection:
         assert xss_findings[0].severity == "low"
 
     async def test_x_xss_protection_mode_block_no_finding(self, scanner):
-        """X-XSS-Protection: 1; mode=block → pas de finding."""
+        """X-XSS-Protection: 1; mode=block → no finding."""
         import respx
 
         sec_headers = {h["name"]: "value" for h in SECURITY_HEADERS}
@@ -1446,7 +1446,7 @@ class TestXXSSProtection:
 
 class TestCheckHttpMethods:
     async def test_dangerous_methods_detected(self):
-        """PUT et DELETE autorisés → finding medium."""
+        """PUT and DELETE allowed → medium finding."""
         import respx
 
         findings = []
@@ -1462,7 +1462,7 @@ class TestCheckHttpMethods:
         assert "PUT" in findings[0].title
 
     async def test_safe_methods_no_finding(self):
-        """GET, POST, OPTIONS → pas de finding."""
+        """GET, POST, OPTIONS → no finding."""
         import respx
 
         findings = []
@@ -1475,7 +1475,7 @@ class TestCheckHttpMethods:
         assert len(findings) == 0
 
     async def test_no_allow_header(self):
-        """Pas de header Allow → pas de finding."""
+        """No Allow header → no finding."""
         import respx
 
         findings = []
@@ -1488,7 +1488,7 @@ class TestCheckHttpMethods:
         assert len(findings) == 0
 
     async def test_trace_method_detected(self):
-        """TRACE autorisé → finding medium."""
+        """TRACE allowed → medium finding."""
         import respx
 
         findings = []
@@ -1502,7 +1502,7 @@ class TestCheckHttpMethods:
         assert "TRACE" in findings[0].title
 
     async def test_exception_silenced(self):
-        """Exception sur OPTIONS → silencieux."""
+        """Exception on OPTIONS → silent."""
         import respx
 
         findings = []
@@ -1522,7 +1522,7 @@ class TestCheckHttpMethods:
 
 class TestCheckRobotsSitemap:
     async def test_sensitive_paths_in_robots(self):
-        """robots.txt avec chemins sensibles → finding low."""
+        """robots.txt with sensitive paths → low finding."""
         import respx
 
         findings = []
@@ -1543,7 +1543,7 @@ class TestCheckRobotsSitemap:
         assert robots_findings[0].severity == "low"
 
     async def test_robots_no_sensitive_paths(self):
-        """robots.txt sans chemins sensibles → pas de finding robots."""
+        """robots.txt without sensitive paths → no robots finding."""
         import respx
 
         findings = []
@@ -1563,7 +1563,7 @@ class TestCheckRobotsSitemap:
         assert len(robots_findings) == 0
 
     async def test_sitemap_xml_detected(self):
-        """sitemap.xml accessible → finding info."""
+        """sitemap.xml accessible → info finding."""
         import respx
 
         findings = []
@@ -1584,7 +1584,7 @@ class TestCheckRobotsSitemap:
         assert sitemap_findings[0].severity == "info"
 
     async def test_robots_exception_silenced(self):
-        """Exception sur robots.txt → pas de crash."""
+        """Exception on robots.txt → no crash."""
         import respx
 
         findings = []
@@ -1597,12 +1597,12 @@ class TestCheckRobotsSitemap:
             )
             await _check_robots_sitemap("https://example.com", findings)
 
-        # Pas de crash, pas de finding robots
+        # No crash, no robots finding
         robots_findings = [f for f in findings if "robots.txt" in f.title]
         assert len(robots_findings) == 0
 
     async def test_robots_no_disallow_no_finding(self):
-        """robots.txt sans Disallow → pas de finding."""
+        """robots.txt without Disallow → no finding."""
         import respx
 
         findings = []
@@ -1626,7 +1626,7 @@ class TestCheckRobotsSitemap:
 
 class TestCheckCacheControl:
     async def test_missing_cache_control_on_login(self):
-        """Page /login sans Cache-Control: no-store → finding medium."""
+        """/login page without Cache-Control: no-store → medium finding."""
         import respx
 
         findings = []
@@ -1653,7 +1653,7 @@ class TestCheckCacheControl:
         assert "/login" in findings[0].title
 
     async def test_cache_control_no_store_ok(self):
-        """Page /login avec no-store → pas de finding."""
+        """/login page with no-store → no finding."""
         import respx
 
         findings = []
@@ -1678,7 +1678,7 @@ class TestCheckCacheControl:
         assert len(findings) == 0
 
     async def test_all_sensitive_pages_404(self):
-        """Toutes les pages sensibles renvoient 404 → pas de finding."""
+        """All sensitive pages return 404 → no finding."""
         import respx
 
         findings = []
@@ -1692,7 +1692,7 @@ class TestCheckCacheControl:
         assert len(findings) == 0
 
     async def test_only_one_finding_emitted(self):
-        """Même si plusieurs pages manquent no-store → un seul finding (return après le premier)."""
+        """Even if several pages lack no-store → a single finding (return after the first)."""
         import respx
 
         findings = []
@@ -1724,7 +1724,7 @@ class TestCheckCacheControl:
 
 class TestCheckErrorPages:
     async def test_stack_trace_in_error_page(self):
-        """Page d'erreur avec traceback → finding medium."""
+        """Error page with traceback → medium finding."""
         import respx
 
         findings = []
@@ -1742,7 +1742,7 @@ class TestCheckErrorPages:
         assert "erreur" in findings[0].title.lower()
 
     async def test_clean_error_page_no_finding(self):
-        """Page d'erreur propre → pas de finding."""
+        """Clean error page → no finding."""
         import respx
 
         findings = []
@@ -1755,7 +1755,7 @@ class TestCheckErrorPages:
         assert len(findings) == 0
 
     async def test_error_page_returns_200(self):
-        """Page inexistante renvoie 200 (custom 404) → pas de finding (status < 400)."""
+        """Nonexistent page returns 200 (custom 404) → no finding (status < 400)."""
         import respx
 
         findings = []
@@ -1768,7 +1768,7 @@ class TestCheckErrorPages:
         assert len(findings) == 0
 
     async def test_sql_error_detected(self):
-        """Page d'erreur avec SQLSTATE → finding medium."""
+        """Error page with SQLSTATE → medium finding."""
         import respx
 
         findings = []
@@ -1785,7 +1785,7 @@ class TestCheckErrorPages:
         assert findings[0].severity == "medium"
 
     async def test_exception_silenced(self):
-        """Exception sur la requête → silencieux."""
+        """Exception on the request → silent."""
         import respx
 
         findings = []
@@ -1799,13 +1799,13 @@ class TestCheckErrorPages:
 
 
 # ===================================================================
-# _analyze_cookie — préfixe __Secure-
+# _analyze_cookie — __Secure- prefix
 # ===================================================================
 
 
 class TestCookieSecurePrefix:
     def test_secure_prefix_without_secure_attr(self):
-        """Cookie __Secure-X sans Secure → finding medium."""
+        """Cookie __Secure-X without Secure → medium finding."""
         findings = []
         seen = set()
         _analyze_cookie("__Secure-session=abc; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1814,7 +1814,7 @@ class TestCookieSecurePrefix:
         assert prefix_findings[0].severity == "medium"
 
     def test_secure_prefix_with_secure_attr(self):
-        """Cookie __Secure-X avec Secure → pas de finding préfixe."""
+        """Cookie __Secure-X with Secure → no prefix finding."""
         findings = []
         seen = set()
         _analyze_cookie("__Secure-session=abc; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1822,7 +1822,7 @@ class TestCookieSecurePrefix:
         assert len(prefix_findings) == 0
 
     def test_secure_prefix_dedup(self):
-        """Deux fois le même cookie __Secure- → un seul finding grâce au seen set."""
+        """The same __Secure- cookie twice → a single finding thanks to the seen set."""
         findings = []
         seen = set()
         _analyze_cookie("__Secure-session=abc; HttpOnly", "/", seen, findings)
@@ -1832,13 +1832,13 @@ class TestCookieSecurePrefix:
 
 
 # ===================================================================
-# _analyze_cookie — préfixe __Host-
+# _analyze_cookie — __Host- prefix
 # ===================================================================
 
 
 class TestCookieHostPrefix:
     def test_host_prefix_missing_secure(self):
-        """Cookie __Host-X sans Secure → finding medium (préfixe __Host- mal configuré)."""
+        """Cookie __Host-X without Secure → medium finding (misconfigured __Host- prefix)."""
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Path=/; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1847,7 +1847,7 @@ class TestCookieHostPrefix:
         assert "Secure manquant" in host_findings[0].description
 
     def test_host_prefix_with_domain(self):
-        """Cookie __Host-X avec Domain → finding medium."""
+        """Cookie __Host-X with Domain → medium finding."""
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Secure; Path=/; Domain=example.com; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1856,7 +1856,7 @@ class TestCookieHostPrefix:
         assert "Domain" in host_findings[0].description
 
     def test_host_prefix_wrong_path(self):
-        """Cookie __Host-X avec Path=/admin → finding medium."""
+        """Cookie __Host-X with Path=/admin → medium finding."""
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Secure; Path=/admin; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1865,7 +1865,7 @@ class TestCookieHostPrefix:
         assert "Path" in host_findings[0].description
 
     def test_host_prefix_correct(self):
-        """Cookie __Host-X correctement configuré → pas de finding préfixe __Host-."""
+        """Cookie __Host-X correctly configured → no __Host- prefix finding."""
         findings = []
         seen = set()
         _analyze_cookie("__Host-session=abc; Secure; Path=/; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1880,7 +1880,7 @@ class TestCookieHostPrefix:
 
 class TestCookieMaxAge:
     def test_max_age_over_one_year(self):
-        """Max-Age > 31536000 → finding low."""
+        """Max-Age > 31536000 → low finding."""
         findings = []
         seen = set()
         _analyze_cookie("tracker=abc; Max-Age=63072000; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1889,7 +1889,7 @@ class TestCookieMaxAge:
         assert maxage_findings[0].severity == "low"
 
     def test_max_age_exactly_one_year(self):
-        """Max-Age = 31536000 (exactement 1 an) → pas de finding."""
+        """Max-Age = 31536000 (exactly 1 year) → no finding."""
         findings = []
         seen = set()
         _analyze_cookie("tracker=abc; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1897,7 +1897,7 @@ class TestCookieMaxAge:
         assert len(maxage_findings) == 0
 
     def test_max_age_invalid_value(self):
-        """Max-Age invalide (non numérique) → ignoré, pas de crash."""
+        """Invalid Max-Age (non-numeric) → ignored, no crash."""
         findings = []
         seen = set()
         _analyze_cookie("tracker=abc; Max-Age=abc; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1912,7 +1912,7 @@ class TestCookieMaxAge:
 
 class TestCookieDomainScope:
     def test_domain_with_leading_dot(self):
-        """Domain=.example.com → finding medium (scope trop large)."""
+        """Domain=.example.com → medium finding (scope too broad)."""
         findings = []
         seen = set()
         _analyze_cookie("sess=abc; Domain=.example.com; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1921,7 +1921,7 @@ class TestCookieDomainScope:
         assert domain_findings[0].severity == "medium"
 
     def test_domain_without_leading_dot(self):
-        """Domain=example.com (sans point) → pas de finding scope."""
+        """Domain=example.com (without leading dot) → no scope finding."""
         findings = []
         seen = set()
         _analyze_cookie("sess=abc; Domain=example.com; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)
@@ -1929,7 +1929,7 @@ class TestCookieDomainScope:
         assert len(domain_findings) == 0
 
     def test_no_domain_attr(self):
-        """Pas d'attribut Domain → pas de finding scope."""
+        """No Domain attribute → no scope finding."""
         findings = []
         seen = set()
         _analyze_cookie("sess=abc; Secure; HttpOnly; SameSite=Lax", "/", seen, findings)

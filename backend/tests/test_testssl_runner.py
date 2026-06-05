@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.testssl_runner — wrapper testssl.sh."""
+"""Tests for app.scanners.testssl_runner — testssl.sh wrapper."""
 
 import pytest
 import json
@@ -177,12 +177,12 @@ class TestProcessEntry:
             assert len(findings) == 1, f"No finding for {vuln_id}"
 
     def test_special_check_takes_priority_over_severity(self):
-        """Les checks spéciaux sont évalués sur le contenu, pas la severity."""
+        """Special checks are evaluated on content, not severity."""
         findings = []
         _process_entry({
             "id": "OCSP_stapling",
-            "severity": "OK",  # OK normalement ignoré
-            "finding": "not offered",  # mais le flag_if matche
+            "severity": "OK",  # OK normally ignored
+            "finding": "not offered",  # but the flag_if matches
         }, findings)
         assert len(findings) == 1
 

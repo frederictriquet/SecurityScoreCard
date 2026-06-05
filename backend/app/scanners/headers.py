@@ -82,10 +82,10 @@ SECURITY_HEADERS = [
 
 LEAKY_HEADERS = ["server", "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version"]
 
-# Pages susceptibles de poser des cookies de session
+# Pages likely to set session cookies
 COOKIE_PROBE_PATHS = ["/", "/login", "/signin", "/sign-in", "/auth", "/account", "/admin"]
 
-# Fichiers sensibles dont l'exposition est critique
+# Sensitive files whose exposure is critical
 EXPOSED_FILES = [
     ("/.git/HEAD", "ref: ", "critical",
      "Dépôt Git exposé (.git/)",
@@ -103,7 +103,7 @@ EXPOSED_FILES = [
      "Fichier web.config exposé",
      "La configuration IIS est accessible et peut contenir des secrets.",
      "Bloquer l'accès au fichier web.config."),
-    # Fichiers de backup (6.5)
+    # Backup files (6.5)
     ("/.htpasswd", None, "critical",
      "Fichier .htpasswd exposé",
      "Le fichier de mots de passe Apache est accessible publiquement.",
@@ -124,7 +124,7 @@ EXPOSED_FILES = [
 
 
 class _HTMLSecurityParser(HTMLParser):
-    """Analyse le HTML pour détecter les problèmes de SRI et de mixed content."""
+    """Parses the HTML to detect SRI and mixed content issues."""
 
     def __init__(self, origin_host: str) -> None:
         super().__init__()
@@ -139,7 +139,7 @@ class _HTMLSecurityParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         d = dict(attrs)
 
-        # Déterminer l'URL de la ressource
+        # Determine the resource URL
         url = ""
         if tag == "script":
             url = d.get("src") or ""
@@ -150,21 +150,21 @@ class _HTMLSecurityParser(HTMLParser):
             parsed = urlparse(url)
             host = parsed.netloc
 
-            # SRI : ressource cross-origin sans integrity
+            # SRI: cross-origin resource without integrity
             if host and host != self.origin_host and not d.get("integrity"):
                 key = (tag, host)
                 if key not in self._seen_sri:
                     self._seen_sri.add(key)
                     self.sri_issues.append((tag, url, host))
 
-            # Mixed content : ressource HTTP sur page HTTPS
+            # Mixed content: HTTP resource on an HTTPS page
             if parsed.scheme == "http" and host:
                 mk = f"{tag}:{host}"
                 if mk not in self._seen_mixed:
                     self._seen_mixed.add(mk)
                     self.mixed_content.append((tag, url))
 
-        # Mixed content pour les autres éléments (img, iframe, etc.)
+        # Mixed content for the other elements (img, iframe, etc.)
         if tag in ("img", "iframe", "video", "audio", "source", "embed", "object"):
             src = d.get("src") or ""
             if src:
@@ -175,7 +175,7 @@ class _HTMLSecurityParser(HTMLParser):
                         self._seen_mixed.add(mk)
                         self.mixed_content.append((tag, src))
 
-        # Formulaires soumis en HTTP
+        # Forms submitted over HTTP
         if tag == "form":
             action = d.get("action") or ""
             if action:
@@ -203,8 +203,8 @@ class HeadersScanner(BaseScanner):
         findings: list[FindingData] = []
         base_url = f"https://{domain}"
 
-        # verify=False : le scanner TLS gère séparément les problèmes de certificat ;
-        # ici on veut analyser les headers et cookies même si le cert est expiré/invalide.
+        # verify=False: the TLS scanner handles certificate issues separately;
+        # here we want to analyze headers and cookies even if the cert is expired/invalid.
         try:
             async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
                 response = await client.get(base_url)
@@ -217,7 +217,7 @@ class HeadersScanner(BaseScanner):
             ))
             return ScanResult.from_findings(findings)
 
-        # Vérification des headers de sécurité
+        # Check security headers
         for check in SECURITY_HEADERS:
             if check["name"] not in headers:
                 findings.append(FindingData(
@@ -227,7 +227,7 @@ class HeadersScanner(BaseScanner):
                     remediation=check["remediation"],
                 ))
 
-        # Headers informatifs exposés
+        # Exposed informational headers
         for header in LEAKY_HEADERS:
             if header in headers:
                 findings.append(FindingData(
@@ -237,7 +237,7 @@ class HeadersScanner(BaseScanner):
                     remediation=f"Supprimer ou masquer l'en-tête {header}.",
                 ))
 
-        # Analyse HTML : SRI + Mixed Content
+        # HTML analysis: SRI + Mixed Content
         parser = _HTMLSecurityParser(domain)
         try:
             parser.feed(response.text)
@@ -279,7 +279,7 @@ class HeadersScanner(BaseScanner):
                 remediation="Supprimer les commentaires contenant des informations sensibles avant la mise en production.",
             ))
 
-        # X-XSS-Protection déprécié mais signalé si désactivé
+        # X-XSS-Protection deprecated but reported if disabled
         xss_prot = headers.get("x-xss-protection", "")
         if xss_prot.strip() == "0":
             findings.append(FindingData(
@@ -289,7 +289,7 @@ class HeadersScanner(BaseScanner):
                 remediation="Supprimer l'en-tête ou le configurer à '1; mode=block'.",
             ))
 
-        # Checks parallèles
+        # Parallel checks
         await asyncio.gather(
             _check_cors(base_url, findings),
             _check_exposed_files(base_url, findings),
@@ -307,11 +307,11 @@ class HeadersScanner(BaseScanner):
         return ScanResult.from_findings(findings)
 
 
-# --- Fonctions auxiliaires ---
+# --- Helper functions ---
 
 
 async def _check_cors(base_url: str, findings: list) -> None:
-    """Teste si le serveur reflète un Origin arbitraire ou utilise *."""
+    """Tests whether the server reflects an arbitrary Origin or uses *."""
     try:
         async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
             resp = await client.get(base_url, headers={"Origin": "https://evil.example.com"})
@@ -346,11 +346,11 @@ async def _check_cors(base_url: str, findings: list) -> None:
 
 
 async def _check_exposed_files(base_url: str, findings: list) -> None:
-    """Vérifie l'accessibilité de fichiers sensibles et la présence de security.txt."""
+    """Checks the accessibility of sensitive files and the presence of security.txt."""
     security_txt_found = False
 
     async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
-        # Baseline 404 pour filtrer les custom 404 qui renvoient 200
+        # 404 baseline to filter out custom 404s that return 200
         try:
             baseline = await client.get(f"{base_url}/a-path-that-should-not-exist-82719")
             baseline_len = len(baseline.text)
@@ -366,15 +366,15 @@ async def _check_exposed_files(base_url: str, findings: list) -> None:
                 text = resp.text[:2000]
                 content_type = resp.headers.get("content-type", "")
 
-                # Filtrer les custom 404 (même taille que la baseline)
+                # Filter out custom 404s (same size as the baseline)
                 if baseline_len > 0 and abs(len(resp.text) - baseline_len) < 100:
                     continue
 
-                # Si signature requise, vérifier sa présence
+                # If a signature is required, check its presence
                 if signature and signature not in text:
                     continue
 
-                # Sans signature, ignorer les réponses HTML (probablement une page d'erreur)
+                # Without a signature, ignore HTML responses (probably an error page)
                 if not signature and "text/html" in content_type:
                     continue
 
@@ -405,7 +405,7 @@ async def _check_exposed_files(base_url: str, findings: list) -> None:
 
 
 async def _check_cookies(base_url: str, findings: list, seen_issues: set[str]) -> None:
-    """Probe plusieurs chemins communs et analyse les attributs des Set-Cookie."""
+    """Probes several common paths and analyzes the Set-Cookie attributes."""
     async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
         for path in COOKIE_PROBE_PATHS:
             try:
@@ -419,7 +419,7 @@ async def _check_cookies(base_url: str, findings: list, seen_issues: set[str]) -
 
 
 def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
-    """Parse un Set-Cookie brut et vérifie Secure, HttpOnly, SameSite."""
+    """Parses a raw Set-Cookie and checks Secure, HttpOnly, SameSite."""
     parts = [p.strip() for p in raw.split(";")]
     if not parts:
         return
@@ -431,7 +431,7 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
         k, _, v = p.strip().partition("=")
         attr_map[k.strip().lower()] = v.strip().lower()
 
-    # Préfixe __Secure- (4.4)
+    # __Secure- prefix (4.4)
     if name.startswith("__Secure-") and "secure" not in attrs:
         issue_key = f"prefix-secure:{name}"
         if issue_key not in seen:
@@ -443,7 +443,7 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
                 remediation="Ajouter l'attribut Secure ou retirer le préfixe __Secure-.",
             ))
 
-    # Préfixe __Host- (4.4)
+    # __Host- prefix (4.4)
     if name.startswith("__Host-"):
         problems = []
         if "secure" not in attrs:
@@ -463,7 +463,7 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
                     remediation="Corriger les attributs du cookie selon les exigences du préfixe __Host-.",
                 ))
 
-    # Max-Age excessif > 1 an (4.5)
+    # Excessive Max-Age > 1 year (4.5)
     max_age_str = attr_map.get("max-age", "")
     if max_age_str:
         try:
@@ -482,7 +482,7 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
         except ValueError:
             pass
 
-    # Scope trop large (4.6)
+    # Scope too broad (4.6)
     cookie_domain = attr_map.get("domain", "")
     if cookie_domain and cookie_domain.startswith("."):
         issue_key = f"domain-scope:{name}"
@@ -538,11 +538,11 @@ def _analyze_cookie(raw: str, path: str, seen: set, findings: list) -> None:
         ))
 
 
-# --- Phase 3 : nouveaux checks ---
+# --- Phase 3: new checks ---
 
 
 async def _check_http_methods(base_url: str, findings: list) -> None:
-    """Vérifie si des méthodes HTTP dangereuses sont autorisées (OPTIONS)."""
+    """Checks whether dangerous HTTP methods are allowed (OPTIONS)."""
     try:
         async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
             resp = await client.options(base_url)
@@ -563,7 +563,7 @@ async def _check_http_methods(base_url: str, findings: list) -> None:
 
 
 async def _check_robots_sitemap(base_url: str, findings: list) -> None:
-    """Analyse robots.txt et vérifie sitemap.xml."""
+    """Analyzes robots.txt and checks sitemap.xml."""
     async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
         # robots.txt
         try:
@@ -607,7 +607,7 @@ async def _check_robots_sitemap(base_url: str, findings: list) -> None:
 
 
 async def _check_cache_control(base_url: str, findings: list) -> None:
-    """Vérifie Cache-Control sur les pages sensibles (login, account...)."""
+    """Checks Cache-Control on sensitive pages (login, account...)."""
     sensitive_paths = ["/login", "/signin", "/account", "/admin", "/dashboard"]
     async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
         for path in sensitive_paths:
@@ -623,13 +623,13 @@ async def _check_cache_control(base_url: str, findings: list) -> None:
                         description=f"La page {path} ne contient pas 'no-store' dans Cache-Control. Elle pourrait être mise en cache.",
                         remediation="Ajouter Cache-Control: no-store, no-cache sur les pages d'authentification et sensibles.",
                     ))
-                    return  # Un seul finding suffit
+                    return  # A single finding is enough
             except Exception:
                 continue
 
 
 async def _check_error_pages(base_url: str, findings: list) -> None:
-    """Vérifie si les pages d'erreur exposent des stack traces."""
+    """Checks whether error pages expose stack traces."""
     try:
         async with httpx.AsyncClient(**_CLIENT_DEFAULTS) as client:
             resp = await client.get(f"{base_url}/a-nonexistent-page-security-test-73921")
