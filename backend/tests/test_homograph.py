@@ -1,8 +1,8 @@
-"""Tests pour app.homograph — primitives partagées d'analyse homographe.
+"""Tests for app.homograph — shared homograph analysis primitives.
 
-Couvre `build_homograph_explanation` (utilisé par le validateur pour expliquer le
-rejet d'un domaine homographe) ainsi que les helpers de détection de script, qui
-sont aussi consommés par le scanner DNS.
+Covers `build_homograph_explanation` (used by the validator to explain the
+rejection of a homograph domain) as well as the script detection helpers, which
+are also consumed by the DNS scanner.
 """
 
 from app.homograph import (
@@ -18,7 +18,7 @@ class TestScriptHelpers:
         assert script_of("a") == "LATIN"
 
     def test_script_of_cyrillic(self):
-        assert script_of("а") == "CYRILLIC"  # U+0430
+        assert script_of("а") == "CYRILLIC"  # U+0430 (Cyrillic)
 
     def test_script_of_non_alpha_is_none(self):
         assert script_of("1") is None
@@ -39,14 +39,14 @@ class TestScriptHelpers:
 
 class TestBuildHomographExplanation:
     def test_mixed_script_explained(self):
-        msg = build_homograph_explanation("pаypal.com")  # « а » cyrillique
+        msg = build_homograph_explanation("pаypal.com")  # Cyrillic "а"
         assert msg is not None
         assert "homographe" in msg.lower()
         assert "CYRILLIC SMALL LETTER A" in msg
         assert "U+0430" in msg
 
     def test_whole_confusable_explained(self):
-        msg = build_homograph_explanation("gооgle")  # « о » cyrilliques
+        msg = build_homograph_explanation("gооgle")  # Cyrillic "о"
         assert msg is not None
         assert "homographe" in msg.lower()
 
@@ -65,24 +65,24 @@ class TestBuildHomographExplanation:
         assert build_homograph_explanation("paypal.com") is None
 
     def test_accented_latin_returns_none(self):
-        # « café » : latin accentué mono-script, pas un homographe.
+        # "café": single-script accented Latin, not a homograph.
         assert build_homograph_explanation("café.com") is None
 
     def test_legit_cjk_returns_none(self):
-        # IDN CJK légitime, non confusable, mono-script → pas d'alerte.
+        # Legitimate CJK IDN, non-confusable, single-script → no alert.
         assert build_homograph_explanation("中国.com") is None
 
     def test_japanese_multiscript_returns_none(self):
-        # Han + Hiragana est une combinaison légitime (UTS#39) → pas d'alerte.
+        # Han + Hiragana is a legitimate combination (UTS#39) → no alert.
         assert build_homograph_explanation("東京めがね.jp") is None
 
     def test_empty_returns_none(self):
         assert build_homograph_explanation("") is None
 
     def test_only_suspect_chars_listed(self):
-        # Seuls les caractères non latins/confusables sont listés, pas les latins.
+        # Only non-Latin/confusable characters are listed, not the Latin ones.
         msg = build_homograph_explanation("pаypal.com")
         assert msg is not None
-        # « p », « y », « l » (latins) ne doivent pas apparaître comme suspects.
+        # "p", "y", "l" (Latin) must not appear as suspicious.
         assert "LATIN SMALL LETTER P" not in msg
         assert "CYRILLIC SMALL LETTER A" in msg

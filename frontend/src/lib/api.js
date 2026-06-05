@@ -6,9 +6,9 @@ export async function createScan(domain, confirm = false) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ domain, confirm })
   });
-  // 409 : domaine homographe non confirmé. Ce n'est pas une erreur mais une
-  // demande de confirmation explicite ; on renvoie le détail structuré pour que
-  // l'appelant affiche l'avertissement et propose de scanner quand même.
+  // 409: unconfirmed homograph domain. This is not an error but a request for
+  // explicit confirmation; we return the structured detail so the caller can
+  // display the warning and offer to scan anyway.
   if (res.status === 409) {
     const err = await res.json().catch(() => ({}));
     if (err.detail && err.detail.needs_confirmation) {
@@ -17,7 +17,7 @@ export async function createScan(domain, confirm = false) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    // Pydantic renvoie detail comme tableau [{msg, ...}] sur les 422
+    // Pydantic returns detail as an array [{msg, ...}] on 422 responses
     const detail = Array.isArray(err.detail)
       ? err.detail.map(e => e.msg).join(', ')
       : err.detail;

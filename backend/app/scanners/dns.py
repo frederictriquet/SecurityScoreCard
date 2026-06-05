@@ -7,9 +7,9 @@ import dns.resolver
 import dns.asyncresolver
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
-# Primitives d'analyse homographe partagées avec le validateur (`schemas`).
-# Centralisées dans `app.homograph` pour éviter toute divergence de la liste de
-# caractères confusables entre la classification (ici) et l'explication (rejet).
+# Homograph analysis primitives shared with the validator (`schemas`).
+# Centralized in `app.homograph` to avoid any divergence of the confusable
+# character list between classification (here) and explanation (rejection).
 from app.homograph import (
     CONFUSABLE_CHARS,
     alpha_scripts,
@@ -334,34 +334,34 @@ class DnsScanner(BaseScanner):
 
 
     async def _check_idn_homograph(self, domain: str, findings: list) -> None:
-        """Détection passive d'un domaine homographe (IDN spoofing).
+        """Passive detection of a homograph domain (IDN spoofing).
 
-        Analyse purement locale du nom de domaine : aucune requête réseau (d'où
-        l'absence de paramètre `resolver`, contrairement aux autres checks DNS).
-        Le validateur (`schemas.validate_domain`) convertit l'input en Punycode
-        via `.encode("idna")`, donc les domaines internationalisés — y compris
-        ceux qu'une victime colle sous leur forme Unicode visible — arrivent ici
-        encodés en labels `xn--`, prêts à être décodés et analysés.
+        Purely local analysis of the domain name: no network request (hence the
+        absence of a `resolver` parameter, unlike the other DNS checks). The
+        validator (`schemas.validate_domain`) converts the input to Punycode via
+        `.encode("idna")`, so internationalized domains — including those a victim
+        pastes in their visible Unicode form — arrive here encoded as `xn--`
+        labels, ready to be decoded and analyzed.
 
-        Limites connues :
+        Known limitations:
 
-        - La détection « confusables » repose sur `CONFUSABLE_CHARS`, une liste
-          blanche partielle (cyrillique/grec). Des familles entières d'homoglyphes
-          (arménien, fullwidth, alphanumériques mathématiques…) n'y figurent pas
-          et retombent en « info ». Le cas le plus dangereux (mélange latin +
-          autre script, ex. « pаypal ») reste couvert par la branche « scripts
-          mélangés » indépendamment de cette liste.
-        - Les combinaisons de scripts légitimes (japonais Han+Kana, coréen
-          Han+Hangul ; cf. `app.homograph`) sont whitelistées pour
-          éviter de classer en « high » des IDN parfaitement valides.
-        - La conversion en Punycode (validateur + ce check) s'appuie sur le codec
-          `.encode("idna")` de la stdlib, qui implémente IDNA2003 et applique un
-          mapping silencieux NON conforme aux navigateurs modernes
-          (UTS#46/IDNA2008) — ex. « straße.de » → « strasse.de ». Pour un outil
-          comparant l'apparence d'un domaine à sa forme réelle, la normalisation
-          peut donc différer de celle vue par la victime dans son navigateur.
+        - The "confusable" detection relies on `CONFUSABLE_CHARS`, a partial
+          allowlist (Cyrillic/Greek). Entire families of homoglyphs (Armenian,
+          fullwidth, mathematical alphanumerics…) are not listed and fall back to
+          "info". The most dangerous case (mix of Latin + another script, e.g.
+          "pаypal") remains covered by the "mixed scripts" branch independently of
+          this list.
+        - Legitimate script combinations (Japanese Han+Kana, Korean Han+Hangul;
+          cf. `app.homograph`) are whitelisted to avoid classifying perfectly
+          valid IDNs as "high".
+        - The Punycode conversion (validator + this check) relies on the stdlib
+          `.encode("idna")` codec, which implements IDNA2003 and applies a silent
+          mapping NOT conformant to modern browsers (UTS#46/IDNA2008) — e.g.
+          "straße.de" → "strasse.de". For a tool comparing the appearance of a
+          domain to its real form, the normalization may therefore differ from the
+          one seen by the victim in their browser.
         """
-        idn_labels: list[tuple[str, str]] = []  # (label ASCII, label Unicode)
+        idn_labels: list[tuple[str, str]] = []  # (ASCII label, Unicode label)
         for label in domain.split("."):
             if not label.startswith("xn--"):
                 continue
@@ -372,7 +372,7 @@ class DnsScanner(BaseScanner):
             idn_labels.append((label, unicode_label))
 
         if not idn_labels:
-            return  # Domaine ASCII pur : pas de risque homographe
+            return  # Pure ASCII domain: no homograph risk
 
         for ascii_label, unicode_label in idn_labels:
             scripts = alpha_scripts(unicode_label)

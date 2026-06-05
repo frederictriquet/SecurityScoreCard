@@ -8,14 +8,14 @@
   let scans = [];
   let loading = false;
   let error = '';
-  let deleteConfirm = null; // id du scan en attente de confirmation
-  let homographWarning = null; // { explanation, domain, punycode } si confirmation requise
+  let deleteConfirm = null; // id of the scan awaiting confirmation
+  let homographWarning = null; // { explanation, domain, punycode } if confirmation required
 
   onMount(async () => {
     try {
       scans = await listScans();
     } catch {
-      // silencieux au chargement
+      // silent on load
     }
   });
 
@@ -25,7 +25,7 @@
     try {
       const result = await createScan(d, confirm);
       if (result.needsConfirmation) {
-        // Domaine homographe : on n'enchaîne pas, on affiche l'avertissement.
+        // Homograph domain: we do not proceed, we display the warning.
         homographWarning = result;
         loading = false;
         return;
@@ -45,7 +45,7 @@
   }
 
   function confirmHomograph() {
-    // « Scanner quand même » : ré-émet la requête avec la confirmation explicite.
+    // "Scanner quand même": re-issues the request with explicit confirmation.
     const target = homographWarning.domain;
     homographWarning = null;
     startScan(target, true);

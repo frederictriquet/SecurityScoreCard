@@ -1,82 +1,82 @@
-"""Analyse des domaines homographes (IDN spoofing).
+"""Homograph domain analysis (IDN spoofing).
 
-Primitives partagées entre deux usages :
+Primitives shared between two use cases:
 
-- le scanner DNS (`scanners.dns._check_idn_homograph`) qui CLASSE en findings un
-  domaine déjà validé et converti en Punycode ;
-- le validateur (`schemas.validate_domain`) qui, lorsqu'il REJETTE un domaine non
-  ASCII suspect, doit EXPLIQUER pourquoi plutôt que renvoyer un laconique
-  « Domaine invalide ».
+- the DNS scanner (`scanners.dns._check_idn_homograph`) which CLASSIFIES into
+  findings a domain that has already been validated and converted to Punycode;
+- the validator (`schemas.validate_domain`) which, when it REJECTS a suspicious
+  non-ASCII domain, must EXPLAIN why rather than return a terse "Domaine
+  invalide".
 
-Centraliser ici la liste des caractères « confusables » et la détection
-heuristique de script évite toute divergence entre ces deux usages (une liste qui
-dériverait d'un fichier à l'autre serait un angle mort de sécurité).
+Centralizing the list of "confusable" characters and the heuristic script
+detection here avoids any divergence between these two use cases (a list that
+drifted from one file to the other would be a security blind spot).
 """
 
 import unicodedata
 
 
-# Préfixes de noms Unicode qui qualifient un caractère sans désigner son
-# système d'écriture (ex. « MODIFIER LETTER SMALL H », « FULLWIDTH LATIN … »).
-# On les saute pour atteindre le vrai nom de script et éviter de fabriquer de
-# faux « scripts » (MODIFIER, FULLWIDTH…) qui déclencheraient à tort une alerte
-# « scripts mélangés ». Heuristique : voir alpha_scripts.
+# Unicode name prefixes that qualify a character without naming its writing
+# system (e.g. "MODIFIER LETTER SMALL H", "FULLWIDTH LATIN …"). We skip them to
+# reach the real script name and avoid fabricating fake "scripts" (MODIFIER,
+# FULLWIDTH…) that would wrongly trigger a "mixed scripts" alert. Heuristic: see
+# alpha_scripts.
 _SCRIPT_NAME_QUALIFIERS = {
     "MODIFIER", "COMBINING", "FULLWIDTH", "HALFWIDTH", "MATHEMATICAL",
     "CIRCLED", "PARENTHESIZED", "SUPERSCRIPT", "SUBSCRIPT", "SMALL",
 }
 
 
-# Caractères non latins dont l'apparence imite une lettre ASCII latine.
-# Sert à détecter les attaques homographes (IDN spoofing).
-# NOTE : liste blanche volontairement partielle (cyrillique/grec, les scripts
-# les plus courants pour ce type d'attaque). D'autres familles d'homoglyphes
-# (arménien, latin pleine-chasse, alphanumériques mathématiques…) ne sont pas
-# énumérées et ne déclencheront donc PAS la branche « confusable » (medium) :
-# elles retombent en « info ». Le cas critique du mélange de scripts reste
-# couvert indépendamment de cette liste (branche « scripts mélangés », high).
+# Non-Latin characters whose appearance imitates a Latin ASCII letter.
+# Used to detect homograph attacks (IDN spoofing).
+# NOTE: deliberately partial allowlist (Cyrillic/Greek, the most common scripts
+# for this kind of attack). Other homoglyph families (Armenian, fullwidth Latin,
+# mathematical alphanumerics…) are not enumerated and therefore will NOT trigger
+# the "confusable" branch (medium): they fall back to "info". The critical case
+# of mixed scripts remains covered independently of this list (the "mixed
+# scripts" branch, high).
 CONFUSABLE_CHARS = {
-    # Cyrillique minuscule
+    # Lowercase Cyrillic
     "а", "е", "о", "р", "с", "у", "х", "ѕ", "і", "ј", "һ", "ԁ", "ӏ", "ԛ", "ԝ",
-    # Cyrillique majuscule
+    # Uppercase Cyrillic
     "А", "В", "Е", "К", "М", "Н", "О", "Р", "С", "Т", "У", "Х", "Ѕ", "І", "Ј",
-    # Grec minuscule
+    # Lowercase Greek
     "ο", "α", "ν", "ρ", "ι", "κ", "υ",
-    # Grec majuscule
+    # Uppercase Greek
     "Α", "Β", "Ε", "Ζ", "Η", "Ι", "Κ", "Μ", "Ν", "Ο", "Ρ", "Τ", "Υ", "Χ",
 }
 
 
-# Combinaisons de scripts pouvant légitimement coexister dans un même label
-# (UTS#39, profil « Highly Restrictive »). Le japonais mélange normalement Han
-# (CJK) + Hiragana + Katakana, plus la marque d'allongement « ー » dont le nom
-# Unicode commence par KATAKANA-HIRAGANA ; le coréen mélange Han + Hangul. Ces
-# domaines sont parfaitement valides et ne doivent PAS être signalés comme
-# homographes. NB : les scripts sont ici les préfixes de noms Unicode renvoyés
-# par `alpha_scripts` (heuristique), pas la propriété Unicode « Script ».
+# Script combinations that may legitimately coexist within a single label
+# (UTS#39, "Highly Restrictive" profile). Japanese normally mixes Han (CJK) +
+# Hiragana + Katakana, plus the prolonged sound mark "ー" whose Unicode name
+# starts with KATAKANA-HIRAGANA; Korean mixes Han + Hangul. These domains are
+# perfectly valid and must NOT be flagged as homographs. NB: the scripts here
+# are the Unicode name prefixes returned by `alpha_scripts` (heuristic), not the
+# Unicode "Script" property.
 _LEGIT_MULTISCRIPT_SETS = [
-    {"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"},  # japonais
-    {"CJK", "HANGUL"},                                      # coréen
+    {"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"},  # Japanese
+    {"CJK", "HANGUL"},                                      # Korean
 ]
 
 
 def is_legit_multiscript(scripts: set[str]) -> bool:
-    """Vrai si le mélange de scripts correspond à une combinaison légitime.
+    """True if the script mix corresponds to a legitimate combination.
 
-    UTS#39 autorise explicitement Han+Kana (japonais) et Han+Hangul (coréen) :
-    un label dont l'ensemble des scripts est un sous-ensemble de l'une de ces
-    combinaisons n'est pas une attaque homographe mais un IDN normal.
+    UTS#39 explicitly allows Han+Kana (Japanese) and Han+Hangul (Korean): a label
+    whose set of scripts is a subset of one of these combinations is not a
+    homograph attack but a normal IDN.
     """
     return any(scripts <= allowed for allowed in _LEGIT_MULTISCRIPT_SETS)
 
 
 def script_of(ch: str) -> str | None:
-    """Système d'écriture (heuristique) d'un caractère alphabétique, ou None.
+    """Writing system (heuristic) of an alphabetic character, or None.
 
-    Déduit le script du premier mot « significatif » du nom Unicode du caractère
-    (« LATIN SMALL LETTER A » → LATIN), en sautant les préfixes qualificatifs
-    (MODIFIER, FULLWIDTH…). Retourne None pour les caractères non alphabétiques
-    ou sans nom Unicode.
+    Infers the script from the first "meaningful" word of the character's Unicode
+    name ("LATIN SMALL LETTER A" → LATIN), skipping qualifying prefixes (MODIFIER,
+    FULLWIDTH…). Returns None for non-alphabetic characters or characters without
+    a Unicode name.
     """
     if not ch.isalpha():
         return None
@@ -92,11 +92,11 @@ def script_of(ch: str) -> str | None:
 
 
 def alpha_scripts(text: str) -> set[str]:
-    """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques.
+    """Returns the set of writing systems of the alphabetic characters.
 
-    Heuristique (et non la propriété Unicode « Script ») : voir `script_of`.
-    Suffisant pour distinguer latin/cyrillique/grec/CJK dans un nom de domaine,
-    mais à ne pas confondre avec une vraie détection de script.
+    Heuristic (and not the Unicode "Script" property): see `script_of`. Enough to
+    distinguish Latin/Cyrillic/Greek/CJK in a domain name, but not to be confused
+    with real script detection.
     """
     scripts: set[str] = set()
     for ch in text:
@@ -107,26 +107,26 @@ def alpha_scripts(text: str) -> set[str]:
 
 
 def build_homograph_explanation(raw: str) -> str | None:
-    """Construit une explication détaillée si `raw` ressemble à un homographe.
+    """Builds a detailed explanation if `raw` looks like a homograph.
 
-    Utilisé par le validateur sur le chemin de REJET : quand un domaine non ASCII
-    n'a pas pu être validé, on veut dire à l'utilisateur *pourquoi* c'est un
-    problème plutôt que « Domaine invalide ».
+    Used by the validator on the REJECT path: when a non-ASCII domain could not be
+    validated, we want to tell the user *why* it is a problem rather than
+    "Domaine invalide".
 
-    `raw` est le domaine tel que soumis (forme Unicode visible), avant conversion
-    Punycode. L'analyse se fait LABEL PAR LABEL (séparés par des points), comme le
-    scanner DNS : c'est au sein d'un même label qu'un mélange de scripts trahit un
-    homographe. Sans ce découpage, le TLD ASCII (« .com ») ajouterait toujours du
-    LATIN et ferait passer un IDN légitime (« 中国.com ») pour un faux positif.
+    `raw` is the domain as submitted (visible Unicode form), before Punycode
+    conversion. The analysis is done LABEL BY LABEL (separated by dots), like the
+    DNS scanner: it is within a single label that a script mix betrays a
+    homograph. Without this split, the ASCII TLD (".com") would always add LATIN
+    and would make a legitimate IDN ("中国.com") look like a false positive.
 
-    Retourne :
-    - une chaîne d'explication si au moins un label présente une signature
-      homographe — mélange de scripts non légitime (ex. « pаypal »), ou label
-      entièrement composé de caractères confusables non latins (ex. « аррӏе ») ;
-    - None sinon (ASCII pur, latin accentué, IDN non confusable, combinaison de
-      scripts légitime…), auquel cas l'appelant conserve son message générique.
-      On évite ainsi de crier « homographe » sur un IDN honnête simplement rejeté
-      pour une autre raison (ex. TLD manquant).
+    Returns:
+    - an explanation string if at least one label exhibits a homograph signature
+      — illegitimate script mix (e.g. "pаypal"), or label entirely composed of
+      non-Latin confusable characters (e.g. "аррӏе");
+    - None otherwise (pure ASCII, accented Latin, non-confusable IDN, legitimate
+      script combination…), in which case the caller keeps its generic message.
+      This avoids crying "homograph" over an honest IDN simply rejected for
+      another reason (e.g. missing TLD).
     """
     suspicious = False
     for label in raw.split("."):
@@ -145,8 +145,8 @@ def build_homograph_explanation(raw: str) -> str | None:
     if not suspicious:
         return None
 
-    # Liste les caractères suspects (non latins ou explicitement confusables),
-    # dédupliqués en conservant l'ordre d'apparition.
+    # List the suspicious characters (non-Latin or explicitly confusable),
+    # deduplicated while preserving order of appearance.
     suspects: list[str] = []
     seen: set[str] = set()
     for c in raw:
@@ -160,7 +160,7 @@ def build_homograph_explanation(raw: str) -> str | None:
                 name = "caractère non nommé"
             suspects.append(f"« {c} » ({name}, U+{ord(c):04X})")
 
-    # Forme Punycode réelle (best-effort) : révèle l'écart avec le domaine imité.
+    # Real Punycode form (best-effort): reveals the gap with the imitated domain.
     try:
         puny = raw.encode("idna").decode("ascii")
     except (UnicodeError, ValueError):
