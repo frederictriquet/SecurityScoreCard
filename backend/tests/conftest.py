@@ -30,6 +30,47 @@ _orch.AsyncSessionLocal = _db.AsyncSessionLocal
 
 
 # ---------------------------------------------------------------------------
+# Per-test database isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def isolated_db():
+    """Give every test a private SQLite file and a fresh async engine.
+
+    ``asyncio_mode = auto`` runs each test inside its own event loop. A single
+    async engine shared across those loops corrupts aiosqlite's connection pool:
+    connections (and their pending state) get bound to the loop that created
+    them, so state bleeds between tests — manifesting as "database is locked",
+    wrong row counts ("assert 1 == 7") or a stray module named "s".
+
+    To stay reliable we build the engine — and dispose it — *inside* the test's
+    own event loop, backed by a database file unique to that test, then point
+    every module-level reference (``app.database`` globals consumed by
+    ``get_db`` and the orchestrator's imported ``AsyncSessionLocal``) at it.
+    """
+    db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    db_file.close()
+    url = f"sqlite+aiosqlite:///{db_file.name}"
+
+    engine = _db.create_async_engine(url, echo=False)
+    session_factory = _db.async_sessionmaker(engine, expire_on_commit=False)
+
+    _db.engine = engine
+    _db.AsyncSessionLocal = session_factory
+    _orch.AsyncSessionLocal = session_factory
+
+    async with engine.begin() as conn:
+        await conn.run_sync(_db.Base.metadata.create_all)
+
+    try:
+        yield session_factory
+    finally:
+        await engine.dispose()
+        os.unlink(db_file.name)
+
+
+# ---------------------------------------------------------------------------
 # DNS resolver mock
 # ---------------------------------------------------------------------------
 

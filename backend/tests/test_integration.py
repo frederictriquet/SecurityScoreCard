@@ -19,8 +19,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.limiter import limiter
-from app.models import Scan, ScanModule, Finding, Base
-import app.database as _db
+from app.models import Scan, ScanModule, Finding
 
 
 # ===================================================================
@@ -29,13 +28,9 @@ import app.database as _db
 
 
 @pytest.fixture(autouse=True)
-async def _setup_db():
-    """Create and clean up the tables for each test."""
-    async with _db.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+async def _setup_db(isolated_db):
+    """Each test gets a private SQLite file + fresh engine (see conftest)."""
     yield
-    async with _db.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture
