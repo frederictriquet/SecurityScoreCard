@@ -44,7 +44,7 @@ Objectif : scan passif le plus exhaustif possible, sans API payante, avec des ou
 | 2.7 | Algorithme de signature faible (MD5, SHA-1) | high | [x] | `cryptography` — parsing DER |
 | 2.8 | OCSP Stapling — support | medium | [x] | `testssl.sh --server-defaults` |
 | 2.9 | Certificate Transparency — SCT présents | medium | [x] | `testssl.sh --server-defaults` |
-| 2.10 | HSTS Preload — domaine dans la preload list | medium | [ ] | Fetch `https://hstspreload.org/api/v2/status?domain=` |
+| 2.10 | HSTS Preload — domaine dans la preload list | medium | [x] | Fetch `https://hstspreload.org/api/v2/status?domain=` |
 | 2.11 | Vulnérabilités connues : Heartbleed | critical | [x] | `testssl.sh --vulnerabilities` |
 | 2.12 | Vulnérabilités connues : POODLE | high | [x] | `testssl.sh --vulnerabilities` |
 | 2.13 | Vulnérabilités connues : ROBOT | high | [x] | `testssl.sh --vulnerabilities` |

@@ -3,6 +3,8 @@ import ssl
 import socket
 from datetime import datetime, timezone
 
+import httpx
+
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 from app.scanners.testssl_runner import run_testssl
 
@@ -13,21 +15,26 @@ WEAK_PROTOCOLS = {
 
 WEAK_CIPHERS_KEYWORDS = ["RC4", "DES", "3DES", "EXPORT", "NULL", "MD5", "ANON"]
 
+HSTS_PRELOAD_API = "https://hstspreload.org/api/v2/status"
+
 
 class TlsScanner(BaseScanner):
     name = "tls"
     weight = 0.20
 
     async def scan(self, domain: str) -> ScanResult:
-        # Run the Python checks and testssl.sh in parallel
+        # Run the Python checks, testssl.sh and the HSTS preload check in parallel
         basic_task = self._basic_checks(domain)
         testssl_task = run_testssl(domain)
+        preload_task = _check_hsts_preload(domain)
 
-        basic_findings, testssl_findings = await asyncio.gather(
-            basic_task, testssl_task
+        basic_findings, testssl_findings, preload_findings = await asyncio.gather(
+            basic_task, testssl_task, preload_task
         )
 
-        return ScanResult.from_findings(basic_findings + testssl_findings)
+        return ScanResult.from_findings(
+            basic_findings + testssl_findings + preload_findings
+        )
 
     async def _basic_checks(self, domain: str) -> list[FindingData]:
         findings: list[FindingData] = []
@@ -302,3 +309,46 @@ def _check_san_coverage(cert_info: dict, domain: str, findings: list) -> None:
             description=f"The certificate SANs ({', '.join(sans[:5])}) do not cover {domain}.",
             remediation="Regenerate the certificate including the domain in the SANs.",
         ))
+
+
+async def _check_hsts_preload(domain: str) -> list[FindingData]:
+    """Check whether the domain is in the browsers' HSTS preload list.
+
+    Queries the free hstspreload.org API. The JSON response carries a
+    "status" field: "preloaded" (OK), "pending" (submission in progress),
+    or "unknown"/absent (not in the list).
+    """
+    findings: list[FindingData] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(HSTS_PRELOAD_API, params={"domain": domain})
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        # Network error, timeout or invalid response: do not break the scan
+        return findings
+
+    status = data.get("status") if isinstance(data, dict) else None
+
+    if status == "preloaded":
+        return findings
+
+    findings.append(FindingData(
+        severity="medium",
+        title="Domain not in the HSTS preload list",
+        description=(
+            f"{domain} is not present in the browsers' HSTS preload list "
+            f"(status: {status or 'unknown'}). Without preloading, the first "
+            "visit before any HSTS header is received remains exposed to "
+            "SSL-stripping / downgrade attacks."
+        ),
+        remediation=(
+            "Serve a Strict-Transport-Security header with the 'preload' and "
+            "'includeSubDomains' directives and a max-age of at least one year "
+            "(max-age=31536000), then submit the domain at "
+            "https://hstspreload.org."
+        ),
+    ))
+
+    return findings

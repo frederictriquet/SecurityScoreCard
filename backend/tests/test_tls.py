@@ -19,6 +19,7 @@ from app.scanners.tls import (
     _fetch_cert_sync,
     _parse_cert_der,
     _get_cert_info,
+    _check_hsts_preload,
     WEAK_CIPHERS_KEYWORDS,
 )
 from app.scanners.base import FindingData
@@ -314,8 +315,12 @@ class TestSigAlgorithm:
 
 class TestTlsFullScan:
     async def test_connection_failure_returns_critical(self, scanner):
-        with patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock:
+        with (
+            patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock,
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock) as preload,
+        ):
             mock.side_effect = Exception("Connection refused")
+            preload.return_value = []
             result = await scanner.scan("unreachable.example.com")
             assert result.score == 70  # 100 - 30 (critical)
             assert len(result.findings) == 1
@@ -323,14 +328,21 @@ class TestTlsFullScan:
             assert "TLS connection failed" in result.findings[0].title
 
     async def test_healthy_cert_returns_100(self, scanner):
-        with patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock:
+        with (
+            patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock,
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock) as preload,
+        ):
             mock.return_value = make_cert_info(sans=["healthy.example.com", "www.healthy.example.com"])
+            preload.return_value = []
             result = await scanner.scan("healthy.example.com")
             assert result.score == 100
             assert len(result.findings) == 0
 
     async def test_multiple_issues_cumulate(self, scanner):
-        with patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock:
+        with (
+            patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock) as mock,
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock) as preload,
+        ):
             mock.return_value = make_cert_info(
                 not_after=datetime.now(timezone.utc) - timedelta(days=5),  # expired → critical
                 issuer_cn="self.example.com",
@@ -338,6 +350,7 @@ class TestTlsFullScan:
                 sig_algo="sha1WithRSA",  # sha1 → high
                 sans=["bad.example.com"],  # domain covered to avoid SAN finding
             )
+            preload.return_value = []
             result = await scanner.scan("bad.example.com")
             # critical(-30) + critical(-30) + high(-20) = 100 - 80 = 20
             assert result.score == 20
@@ -872,3 +885,83 @@ class TestCheckSanCoverage:
         _check_san_coverage({}, "example.com", findings)
         assert len(findings) == 1
         assert findings[0].severity == "low"
+
+
+# ===================================================================
+# _check_hsts_preload — HSTS preload list (check 2.10)
+# ===================================================================
+
+
+class TestHstsPreload:
+    async def test_preloaded_domain_no_finding(self):
+        import respx
+        import httpx as _httpx
+
+        with respx.mock:
+            respx.get("https://hstspreload.org/api/v2/status").mock(
+                return_value=_httpx.Response(200, json={"status": "preloaded"})
+            )
+            findings = await _check_hsts_preload("example.com")
+        assert findings == []
+
+    async def test_unknown_domain_medium_finding(self):
+        import respx
+        import httpx as _httpx
+
+        with respx.mock:
+            respx.get("https://hstspreload.org/api/v2/status").mock(
+                return_value=_httpx.Response(200, json={"status": "unknown"})
+            )
+            findings = await _check_hsts_preload("example.com")
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "preload" in findings[0].title.lower()
+        assert findings[0].remediation is not None
+        assert "hstspreload.org" in findings[0].remediation
+
+    async def test_pending_domain_medium_finding(self):
+        import respx
+        import httpx as _httpx
+
+        with respx.mock:
+            respx.get("https://hstspreload.org/api/v2/status").mock(
+                return_value=_httpx.Response(200, json={"status": "pending"})
+            )
+            findings = await _check_hsts_preload("example.com")
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "pending" in findings[0].description
+
+    async def test_status_absent_medium_finding(self):
+        import respx
+        import httpx as _httpx
+
+        with respx.mock:
+            respx.get("https://hstspreload.org/api/v2/status").mock(
+                return_value=_httpx.Response(200, json={})
+            )
+            findings = await _check_hsts_preload("example.com")
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+
+    async def test_network_timeout_no_finding(self):
+        import respx
+        import httpx as _httpx
+
+        with respx.mock:
+            respx.get("https://hstspreload.org/api/v2/status").mock(
+                side_effect=_httpx.TimeoutException("timed out")
+            )
+            findings = await _check_hsts_preload("example.com")
+        assert findings == []
+
+    async def test_http_error_no_finding(self):
+        import respx
+        import httpx as _httpx
+
+        with respx.mock:
+            respx.get("https://hstspreload.org/api/v2/status").mock(
+                return_value=_httpx.Response(500)
+            )
+            findings = await _check_hsts_preload("example.com")
+        assert findings == []
