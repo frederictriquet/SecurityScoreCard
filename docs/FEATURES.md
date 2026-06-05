@@ -150,7 +150,7 @@ Objectif : scan passif le plus exhaustif possible, sans API payante, avec des ou
 
 | # | Check | Sévérité | Status | Notes |
 |---|-------|----------|--------|-------|
-| 9.1 | STARTTLS sur les MX | high | [ ] | Connexion SMTP sur port 25, vérifier STARTTLS |
+| 9.1 | STARTTLS sur les MX | high | [x] | Connexion SMTP sur port 25, vérifier STARTTLS (port 25 bloqué → indéterminé, jamais un hit) |
 | 9.2 | Certificat TLS des MX | medium | [ ] | Vérifier validité du cert SMTP |
 | 9.3 | Open relay test | critical | [ ] | Tenter RCPT TO vers domaine externe (passif) |
 | 9.4 | SPF — nombre de lookups DNS (max 10) | medium | [x] | Comptage des mécanismes include/a/mx/ptr/exists/redirect |

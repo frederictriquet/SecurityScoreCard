@@ -216,6 +216,132 @@ class TestMx:
 
 
 # ===================================================================
+# STARTTLS on MX checks (9.1)
+# ===================================================================
+
+
+class TestStarttlsMx:
+    async def test_mx_offers_starttls_no_finding(self, scanner, resolver):
+        """Reachable MX advertising STARTTLS → no finding."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", return_value=True):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert findings == []
+
+    async def test_mx_without_starttls_high(self, scanner, resolver):
+        """Reachable MX that does NOT advertise STARTTLS → high finding."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", return_value=False):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "STARTTLS" in findings[0].title
+        assert "mail.example.com" in findings[0].raw_data
+
+    async def test_port25_blocked_not_a_hit(self, scanner, resolver):
+        """Connection refused / timeout (probe returns None) → never a high finding."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", return_value=None):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        # Indeterminate: at most an info finding, certainly no high.
+        assert all(f.severity != "high" for f in findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_probe_timeout_not_a_hit(self, scanner, resolver):
+        """An exception while probing (e.g. wait_for timeout) is treated as indeterminate."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", side_effect=Exception("timeout")):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert all(f.severity != "high" for f in findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+
+    async def test_no_mx_not_applicable(self, scanner, resolver):
+        """Domain without MX → not applicable, no finding."""
+        resolver.resolve = AsyncMock(side_effect=Exception("no MX"))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", return_value=False) as probe:
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert findings == []
+        probe.assert_not_called()
+
+    async def test_mixed_mx_one_missing_starttls_high(self, scanner, resolver):
+        """Several MX, one reachable without STARTTLS → high listing only that host."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mx1.example.com."),
+            FakeMxRecord("mx2.example.com."),
+        ]))
+
+        def probe_side_effect(host, *args, **kwargs):
+            return True if "mx1" in host else False
+
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", side_effect=probe_side_effect):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "mx2.example.com" in findings[0].raw_data
+        assert "mx1.example.com" not in findings[0].raw_data
+
+    async def test_probe_starttls_present(self):
+        """_probe_starttls returns True when has_extn('starttls') is True."""
+        from app.scanners.dns import _probe_starttls
+        from unittest.mock import MagicMock
+
+        smtp = MagicMock()
+        smtp.ehlo.return_value = (250, b"ok")
+        smtp.has_extn.return_value = True
+        smtp.__enter__.return_value = smtp
+        smtp.__exit__.return_value = False
+        with patch("smtplib.SMTP", return_value=smtp):
+            assert _probe_starttls("mail.example.com") is True
+
+    async def test_probe_starttls_absent(self):
+        """_probe_starttls returns False when STARTTLS is not advertised."""
+        from app.scanners.dns import _probe_starttls
+        from unittest.mock import MagicMock
+
+        smtp = MagicMock()
+        smtp.ehlo.return_value = (250, b"ok")
+        smtp.has_extn.return_value = False
+        smtp.__enter__.return_value = smtp
+        smtp.__exit__.return_value = False
+        with patch("smtplib.SMTP", return_value=smtp):
+            assert _probe_starttls("mail.example.com") is False
+
+    async def test_probe_starttls_connection_error(self):
+        """_probe_starttls returns None when the connection fails (indeterminate)."""
+        from app.scanners.dns import _probe_starttls
+        with patch("smtplib.SMTP", side_effect=OSError("connection refused")):
+            assert _probe_starttls("mail.example.com") is None
+
+    async def test_probe_starttls_ehlo_refused(self):
+        """A non-2xx EHLO reply → None (cannot conclude)."""
+        from app.scanners.dns import _probe_starttls
+        from unittest.mock import MagicMock
+
+        smtp = MagicMock()
+        smtp.ehlo.return_value = (554, b"go away")
+        smtp.__enter__.return_value = smtp
+        smtp.__exit__.return_value = False
+        with patch("smtplib.SMTP", return_value=smtp):
+            assert _probe_starttls("mail.example.com") is None
+
+
+# ===================================================================
 # CAA checks
 # ===================================================================
 
