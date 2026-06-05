@@ -1,6 +1,6 @@
-# Modèle de données - SecurityScoreCard
+# Data model - SecurityScoreCard
 
-## Schéma SQLite
+## SQLite schema
 
 ```
 ┌─────────────────────────────────┐
@@ -52,12 +52,12 @@ scan_module.name: dns | tls | headers | reputation | subdomains | leaks
 finding.severity: critical | high | medium | low | info
 ```
 
-## Calcul du score
+## Score calculation
 
 ```
-score_global = Σ (module.score × module.weight) / Σ weights
+global_score = Σ (module.score × module.weight) / Σ weights
 
-Poids par module:
+Weight per module:
   dns        : 0.20
   tls        : 0.20
   headers    : 0.15
@@ -73,7 +73,7 @@ Grade:
   0-59   → F
 ```
 
-## Contrats API (JSON)
+## API contracts (JSON)
 
 ### POST /api/scans
 ```json
@@ -100,9 +100,9 @@ Response: { "id": "uuid", "domain": "example.com", "status": "pending", "created
       "findings": [
         {
           "severity": "medium",
-          "title": "DMARC policy trop permissive",
-          "description": "p=none ne protège pas contre le spoofing",
-          "remediation": "Passer à p=quarantine ou p=reject"
+          "title": "DMARC policy too permissive",
+          "description": "p=none does not protect against spoofing",
+          "remediation": "Switch to p=quarantine or p=reject"
         }
       ]
     }

@@ -1,52 +1,52 @@
-# Référence des Scanners
+# Scanners Reference
 
-## Interface commune
+## Common interface
 
-Chaque scanner hérite de `BaseScanner` et implémente `scan(domain)`.
-Il retourne un `ScanResult` avec un score (0-100) et une liste de findings.
+Each scanner inherits from `BaseScanner` and implements `scan(domain)`.
+It returns a `ScanResult` with a score (0-100) and a list of findings.
 
 ## DNS Scanner (`dns.py`)
 
-**Source** : dnspython via résolveurs publics (8.8.8.8, 1.1.1.1)
-**Poids** : 20%
+**Source**: dnspython via public resolvers (8.8.8.8, 1.1.1.1)
+**Weight**: 20%
 
-| Vérification | Sévérité si absent/mauvais |
+| Check | Severity if missing/bad |
 |--------------|---------------------------|
-| Enregistrement SPF | High |
-| DMARC présent | High |
+| SPF record | High |
+| DMARC present | High |
 | DMARC policy (none/quarantine/reject) | Medium |
-| DKIM (heuristique via TXT records) | Medium |
-| DNSSEC activé | Low |
-| MX records présents | Info |
-| TTL cohérents | Info |
+| DKIM (heuristic via TXT records) | Medium |
+| DNSSEC enabled | Low |
+| MX records present | Info |
+| Consistent TTLs | Info |
 
-**Scoring** : Déductions par finding selon sévérité (critical:-30, high:-20, medium:-10, low:-5)
+**Scoring**: Deductions per finding based on severity (critical:-30, high:-20, medium:-10, low:-5)
 
 ---
 
 ## TLS Scanner (`tls.py`)
 
-**Source** : `ssl` stdlib pour le handshake, `httpx` pour la chaîne
-**Poids** : 20%
+**Source**: `ssl` stdlib for the handshake, `httpx` for the chain
+**Weight**: 20%
 
-| Vérification | Sévérité si absent/mauvais |
+| Check | Severity if missing/bad |
 |--------------|---------------------------|
-| Cert expiré | Critical |
-| Cert expire dans < 30 jours | High |
-| TLS < 1.2 accepté | High |
-| TLS 1.3 supporté | Info (bonus) |
-| Cipher suites faibles (RC4, DES) | High |
-| Certificat auto-signé | Critical |
-| Subject Alternative Names valides | Medium |
+| Expired cert | Critical |
+| Cert expires in < 30 days | High |
+| TLS < 1.2 accepted | High |
+| TLS 1.3 supported | Info (bonus) |
+| Weak cipher suites (RC4, DES) | High |
+| Self-signed certificate | Critical |
+| Valid Subject Alternative Names | Medium |
 
 ---
 
 ## Headers Scanner (`headers.py`)
 
-**Source** : `httpx` requête HEAD sur `https://{domain}`
-**Poids** : 15%
+**Source**: `httpx` HEAD request on `https://{domain}`
+**Weight**: 15%
 
-| Header | Sévérité si absent |
+| Header | Severity if missing |
 |--------|--------------------|
 | `Strict-Transport-Security` | High |
 | `Content-Security-Policy` | Medium |
@@ -54,22 +54,22 @@ Il retourne un `ScanResult` avec un score (0-100) et une liste de findings.
 | `X-Content-Type-Options` | Low |
 | `Referrer-Policy` | Low |
 | `Permissions-Policy` | Low |
-| `Server` exposé (version) | Info |
-| `X-Powered-By` exposé | Info |
+| `Server` exposed (version) | Info |
+| `X-Powered-By` exposed | Info |
 
 ---
 
 ## Reputation Scanner (`reputation.py`)
 
-**Source** : AbuseIPDB API (free tier : 1000 req/jour, clé API nécessaire)
-**Poids** : 20%
+**Source**: AbuseIPDB API (free tier: 1000 req/day, API key required)
+**Weight**: 20%
 
-Étapes :
-1. Résoudre `domain` → IP(s) via DNS
-2. Requête AbuseIPDB pour chaque IP
-3. Score basé sur `abuseConfidenceScore` retourné
+Steps:
+1. Resolve `domain` → IP(s) via DNS
+2. Query AbuseIPDB for each IP
+3. Score based on the returned `abuseConfidenceScore`
 
-| abuseConfidenceScore | Sévérité |
+| abuseConfidenceScore | Severity |
 |----------------------|----------|
 | > 80 | Critical |
 | 50-80 | High |
@@ -77,29 +77,29 @@ Il retourne un `ScanResult` avec un score (0-100) et une liste de findings.
 | 5-20 | Low |
 | < 5 | Info |
 
-**Fallback** : si pas de clé API, vérification Spamhaus DNS-based (gratuit, pas d'API).
+**Fallback**: if no API key, Spamhaus DNS-based check (free, no API).
 
 ---
 
 ## Subdomains Scanner (`subdomains.py`)
 
-**Source** : `https://crt.sh/?q=%.{domain}&output=json` (Certificate Transparency)
-**Poids** : 10%
+**Source**: `https://crt.sh/?q=%.{domain}&output=json` (Certificate Transparency)
+**Weight**: 10%
 
-- Liste tous les sous-domaines trouvés dans les logs CT
-- Vérifie si certains sous-domaines pointent vers des services abandonnés (dangling DNS)
-- Findings = sous-domaines avec CNAME vers services inexistants (subdomain takeover potentiel)
+- Lists all subdomains found in the CT logs
+- Checks whether some subdomains point to abandoned services (dangling DNS)
+- Findings = subdomains with a CNAME to nonexistent services (potential subdomain takeover)
 
 ---
 
 ## Leaks Scanner (`leaks.py`)
 
-**Source** : Have I Been Pwned API v3 (gratuite pour recherche par domaine)
-**Poids** : 15%
+**Source**: Have I Been Pwned API v3 (free for domain search)
+**Weight**: 15%
 
-Endpoint : `GET https://haveibeenpwned.com/api/v3/breacheddomain/{domain}`
+Endpoint: `GET https://haveibeenpwned.com/api/v3/breacheddomain/{domain}`
 
-| Nombre de breaches | Sévérité |
+| Number of breaches | Severity |
 |--------------------|----------|
 | 0 | Info |
 | 1-2 | Low |
@@ -109,9 +109,9 @@ Endpoint : `GET https://haveibeenpwned.com/api/v3/breacheddomain/{domain}`
 
 ---
 
-## Ajout d'un scanner
+## Adding a scanner
 
-1. Créer `backend/app/scanners/monscanner.py` héritant de `BaseScanner`
-2. Implémenter `scan(self, domain: str) -> ScanResult`
-3. L'enregistrer dans `orchestrator.py` (liste `SCANNERS`)
-4. Ajouter son `name` à l'enum `ModuleName` dans `models.py`
+1. Create `backend/app/scanners/myscanner.py` inheriting from `BaseScanner`
+2. Implement `scan(self, domain: str) -> ScanResult`
+3. Register it in `orchestrator.py` (the `SCANNERS` list)
+4. Add its `name` to the `ModuleName` enum in `models.py`

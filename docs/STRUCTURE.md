@@ -1,26 +1,26 @@
-# Structure du projet
+# Project structure
 
 ```
 SecurityScoreCard/
 │
 ├── docs/
-│   ├── ARCHITECTURE.md     # Vue d'ensemble + flux
-│   ├── DATA_MODEL.md       # Schéma DB + contrats API
-│   ├── SCANNERS.md         # Référence de chaque scanner
-│   ├── ROADMAP.md          # Phases d'implémentation
-│   └── STRUCTURE.md        # Ce fichier
+│   ├── ARCHITECTURE.md     # Overview + flow
+│   ├── DATA_MODEL.md       # DB schema + API contracts
+│   ├── SCANNERS.md         # Reference for each scanner
+│   ├── ROADMAP.md          # Implementation phases
+│   └── STRUCTURE.md        # This file
 │
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  # FastAPI app + CORS + montage routeurs
+│   │   ├── main.py                  # FastAPI app + CORS + router mounting
 │   │   ├── database.py              # Engine async SQLAlchemy + session
 │   │   ├── models.py                # SQLAlchemy models (Scan, ScanModule, Finding)
 │   │   ├── schemas.py               # Pydantic schemas (request/response)
 │   │   ├── routers/
-│   │   │   └── scans.py             # Endpoints /api/scans
+│   │   │   └── scans.py             # /api/scans endpoints
 │   │   └── scanners/
 │   │       ├── base.py              # BaseScanner + ScanResult dataclass
-│   │       ├── orchestrator.py      # Lance les scanners en parallèle
+│   │       ├── orchestrator.py      # Runs the scanners in parallel
 │   │       ├── dns.py
 │   │       ├── tls.py
 │   │       ├── headers.py
@@ -33,10 +33,10 @@ SecurityScoreCard/
 ├── frontend/
 │   ├── src/
 │   │   ├── routes/
-│   │   │   ├── +page.svelte              # Accueil
+│   │   │   ├── +page.svelte              # Home
 │   │   │   └── scan/
 │   │   │       └── [id]/
-│   │   │           └── +page.svelte      # Dashboard résultat
+│   │   │           └── +page.svelte      # Result dashboard
 │   │   └── lib/
 │   │       ├── api.js                    # Fetch helpers
 │   │       └── components/

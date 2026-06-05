@@ -1,11 +1,11 @@
 # Roadmap
 
-## Phase 1 — Backend fondations
-- [x] Structure du projet backend (FastAPI + SQLAlchemy + aiosqlite)
-- [x] Modèles DB (`Scan`, `ScanModule`, `Finding`)
-- [x] `BaseScanner` interface abstraite
-- [x] Orchestrateur (asyncio.gather)
-- [x] Endpoints CRUD scans
+## Phase 1 — Backend foundations
+- [x] Backend project structure (FastAPI + SQLAlchemy + aiosqlite)
+- [x] DB models (`Scan`, `ScanModule`, `Finding`)
+- [x] Abstract `BaseScanner` interface
+- [x] Orchestrator (asyncio.gather)
+- [x] Scan CRUD endpoints
 
 ## Phase 2 — Scanners
 - [x] DNS Scanner (dnspython)
@@ -16,21 +16,21 @@
 - [x] Reputation Scanner (AbuseIPDB / Spamhaus fallback)
 
 ## Phase 3 — Frontend
-- [x] Setup SvelteKit
-- [x] Page d'accueil (input domaine + liste scans)
-- [x] Dashboard résultat (score + modules)
-- [x] Composants : ScoreGauge, ModuleCard, FindingRow
-- [x] Polling temps réel (résultats au fil du scan)
+- [x] SvelteKit setup
+- [x] Home page (domain input + scan list)
+- [x] Result dashboard (score + modules)
+- [x] Components: ScoreGauge, ModuleCard, FindingRow
+- [x] Real-time polling (results as the scan progresses)
 
-## Phase 4 — Déploiement
-- [x] Dockerfile backend
-- [x] Dockerfile frontend (build statique)
+## Phase 4 — Deployment
+- [x] Backend Dockerfile
+- [x] Frontend Dockerfile (static build)
 - [x] nginx.conf (reverse proxy + static)
 - [x] docker-compose.yml
-- [x] Variables d'environnement (clés API)
+- [x] Environment variables (API keys)
 
 ## Phase 5 — Polish
-- [x] Gestion des erreurs (domaine invalide, timeout)
-- [x] Rate limiting basique
-- [x] Favicon + titres de page (titres OK ; favicon.png manquant — référencé dans `app.html` mais absent de `static/`)
-- [x] README déploiement VPS
+- [x] Error handling (invalid domain, timeout)
+- [x] Basic rate limiting
+- [x] Favicon + page titles (titles OK; favicon.png missing — referenced in `app.html` but absent from `static/`)
+- [x] README VPS deployment

@@ -1,6 +1,6 @@
 # Architecture - SecurityScoreCard
 
-## Vue d'ensemble
+## Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -13,98 +13,98 @@
 │  └──────────┘     └──────┬───────┘     └──────────────────┘    │
 │       │                  │                                      │
 │       │           ┌──────▼───────┐                              │
-│  SvelteKit        │  Scanners    │──── Sources externes         │
+│  SvelteKit        │  Scanners    │──── External sources         │
 │  (static build)   │  (async)     │     (DNS, crt.sh, etc.)     │
 │                   └──────────────┘                              │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Flux principal
+## Main flow
 
 ```
 1. User POST /api/scans {domain: "example.com"}
          │
          ▼
-2. FastAPI crée un Scan (status=pending) en DB
+2. FastAPI creates a Scan (status=pending) in DB
          │
          ▼
-3. BackgroundTask lance ScanOrchestrator
+3. BackgroundTask launches ScanOrchestrator
          │
-         ├── DNS Scanner ────────▶ résultat → DB (ScanModule)
-         ├── TLS Scanner ────────▶ résultat → DB (ScanModule)
-         ├── Headers Scanner ────▶ résultat → DB (ScanModule)
-         ├── Reputation Scanner ─▶ résultat → DB (ScanModule)
-         ├── Subdomains Scanner ─▶ résultat → DB (ScanModule)
-         └── Leaks Scanner ──────▶ résultat → DB (ScanModule)
-         │
-         ▼
-4. Calcul du score global → Scan (status=completed, score=XX)
+         ├── DNS Scanner ────────▶ result → DB (ScanModule)
+         ├── TLS Scanner ────────▶ result → DB (ScanModule)
+         ├── Headers Scanner ────▶ result → DB (ScanModule)
+         ├── Reputation Scanner ─▶ result → DB (ScanModule)
+         ├── Subdomains Scanner ─▶ result → DB (ScanModule)
+         └── Leaks Scanner ──────▶ result → DB (ScanModule)
          │
          ▼
-5. Frontend poll GET /api/scans/{id} toutes les 2s
-   affiche les résultats au fur et à mesure
+4. Compute global score → Scan (status=completed, score=XX)
+         │
+         ▼
+5. Frontend polls GET /api/scans/{id} every 2s
+   displays results progressively
 ```
 
-## Composants Backend
+## Backend components
 
 ### API Layer (`routers/`)
 
-| Endpoint | Méthode | Description |
+| Endpoint | Method | Description |
 |----------|---------|-------------|
-| `/api/scans` | POST | Lancer un scan (body: `{domain}`) |
-| `/api/scans` | GET | Lister les scans récents |
-| `/api/scans/{id}` | GET | Détail d'un scan + modules |
-| `/api/scans/{id}` | DELETE | Supprimer un scan |
+| `/api/scans` | POST | Launch a scan (body: `{domain}`) |
+| `/api/scans` | GET | List recent scans |
+| `/api/scans/{id}` | GET | Scan details + modules |
+| `/api/scans/{id}` | DELETE | Delete a scan |
 
 ### Scan Orchestrator (`scanners/orchestrator.py`)
 
-- Lance tous les scanners en parallèle via `asyncio.gather()`
-- Chaque scanner est indépendant et écrit ses résultats en DB
-- Un scanner qui échoue n'empêche pas les autres
-- Calcule le score global à la fin
+- Runs all scanners in parallel via `asyncio.gather()`
+- Each scanner is independent and writes its results to the DB
+- A failing scanner does not prevent the others from running
+- Computes the global score at the end
 
 ### Scanners (`scanners/`)
 
-Chaque scanner implémente la même interface :
+Each scanner implements the same interface:
 
 ```python
 class BaseScanner(ABC):
     name: str           # ex: "dns", "tls"
-    weight: float       # poids dans le score global (0.0-1.0)
+    weight: float       # weight in the global score (0.0-1.0)
 
     async def scan(self, domain: str) -> ScanResult:
-        """Exécute le scan et retourne un résultat structuré."""
+        """Run the scan and return a structured result."""
         ...
 ```
 
-| Scanner | Sources | Données collectées |
+| Scanner | Sources | Collected data |
 |---------|---------|-------------------|
-| `dns.py` | dnspython (résolveur public) | SPF, DMARC, DKIM, DNSSEC, MX, NS |
-| `tls.py` | ssl stdlib + httpx | Version TLS, expiration cert, chain, cipher suites |
+| `dns.py` | dnspython (public resolver) | SPF, DMARC, DKIM, DNSSEC, MX, NS |
+| `tls.py` | ssl stdlib + httpx | TLS version, cert expiration, chain, cipher suites |
 | `headers.py` | httpx HEAD | HSTS, CSP, X-Frame-Options, X-Content-Type, Referrer-Policy |
-| `reputation.py` | AbuseIPDB free API | Score de réputation IP, nombre de reports |
-| `subdomains.py` | crt.sh API | Liste des sous-domaines via Certificate Transparency |
-| `leaks.py` | HIBP API (domaine) | Nombre de breaches associées au domaine |
+| `reputation.py` | AbuseIPDB free API | IP reputation score, number of reports |
+| `subdomains.py` | crt.sh API | List of subdomains via Certificate Transparency |
+| `leaks.py` | HIBP API (domain) | Number of breaches associated with the domain |
 
 ### Database Layer (`models.py`, `database.py`)
 
-SQLAlchemy async avec aiosqlite.
+SQLAlchemy async with aiosqlite.
 
-## Composants Frontend
+## Frontend components
 
 ### Pages
 
-| Route | Composant | Description |
+| Route | Component | Description |
 |-------|-----------|-------------|
-| `/` | `+page.svelte` | Input domaine + historique des scans |
-| `/scan/[id]` | `+page.svelte` | Dashboard résultat avec score + détail par module |
+| `/` | `+page.svelte` | Domain input + scan history |
+| `/scan/[id]` | `+page.svelte` | Result dashboard with score + per-module details |
 
-### Composants réutilisables
+### Reusable components
 
-| Composant | Rôle |
+| Component | Role |
 |-----------|------|
-| `ScoreGauge.svelte` | Jauge circulaire A-F avec couleur |
-| `ModuleCard.svelte` | Carte d'un module (nom, score, findings) |
-| `FindingRow.svelte` | Ligne de détail d'un finding (sévérité, description) |
-| `ScanStatus.svelte` | Badge status (pending/running/completed/failed) |
+| `ScoreGauge.svelte` | Circular A-F gauge with color |
+| `ModuleCard.svelte` | Module card (name, score, findings) |
+| `FindingRow.svelte` | Finding detail row (severity, description) |
+| `ScanStatus.svelte` | Status badge (pending/running/completed/failed) |
