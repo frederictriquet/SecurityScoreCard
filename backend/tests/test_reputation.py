@@ -490,3 +490,19 @@ class TestCheckSurblUribl:
             # subdomain should be reduced to the registrable domain
             await _check_surbl_uribl("mail.example.co.uk", findings)
         assert len(findings) == 0
+
+    async def test_does_not_force_public_resolvers(self):
+        """SURBL/URIBL refuse queries from public/open resolvers (Google,
+        Cloudflare), so the check must rely on the system/default resolver and
+        never override its nameservers with public ones."""
+        findings = []
+        mapping = {
+            "example.com.multi.surbl.org": dns.resolver.NXDOMAIN,
+            "example.com.multi.uribl.com": dns.resolver.NXDOMAIN,
+        }
+        resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
+        resolver.resolve = _resolver_returning(mapping)
+        with patch("dns.asyncresolver.Resolver", return_value=resolver):
+            await _check_surbl_uribl("example.com", findings)
+        # nameservers is left untouched (auto Mock attr), not forced to public DNS
+        assert resolver.nameservers != ["8.8.8.8", "1.1.1.1"]

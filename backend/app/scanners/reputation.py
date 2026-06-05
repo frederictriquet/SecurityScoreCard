@@ -194,8 +194,13 @@ def _decode_dnsbl(responses: list[str], bits: dict[int, str]) -> tuple[bool, lis
 
 async def _check_surbl_uribl(domain: str, findings: list[FindingData]) -> None:
     registrable = _registrable_domain(domain)
+    # Use the system/default resolver (from /etc/resolv.conf). SURBL and URIBL
+    # block queries coming from large public/open resolvers (e.g. Google,
+    # Cloudflare) by policy — URIBL answers them with the 127.0.0.1
+    # query-refused code and SURBL withholds its data — so forcing public DNS
+    # would make real listings essentially undetectable. This mirrors the
+    # IP-based Spamhaus check, which relies on the system resolver too.
     resolver = dns.asyncresolver.Resolver()
-    resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
 
     listed_on: list[tuple[str, list[str]]] = []
     undetermined: list[str] = []
