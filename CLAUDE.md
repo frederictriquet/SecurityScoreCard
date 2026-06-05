@@ -86,3 +86,8 @@ See `docs/FEATURES.md` for the full list of checks and their implementation stat
 - `.env` (may contain API keys)
 - `*.db` (local SQLite database)
 - `__pycache__/`, `.venv/`, `node_modules/`, `.svelte-kit/`, `build/`, `dist/`
+
+## Engineering rules
+
+- Tests must validate real behavior end-to-end (validator→orchestrator→scanner), not isolated internals or mock-only happy paths; avoid tautological string/regex assertions, and never depend on a full production build inside a unit test.
+- Don't anchor comments to volatile references (commit hashes, exact UI labels); describe the intent instead, and update or remove any comment whose referent you change in the same edit.

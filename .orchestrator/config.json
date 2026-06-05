@@ -1,0 +1,8 @@
+{
+  "promote": {
+    "backend": "file",
+    "file": { "path": "docs/BACKLOG.md", "section": "Tech debt" },
+    "github": { "labels": ["tech-debt"] },
+    "jira": { "project": "", "issuetype": "Task" }
+  }
+}

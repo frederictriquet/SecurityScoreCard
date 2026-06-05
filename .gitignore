@@ -8,8 +8,9 @@ node_modules/
 build/
 dist/
 
-# Autonomous orchestrator (local logs/findings)
-.orchestrator/
+# Autonomous orchestrator (local logs/findings) — but keep the shared promote config
+.orchestrator/*
+!.orchestrator/config.json
 
 # Local Claude Code config and slash commands
 .claude/
