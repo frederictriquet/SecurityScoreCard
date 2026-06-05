@@ -228,7 +228,7 @@ class TestCreateScanE2E:
         """API → orchestrateur → fake scanners → DB → réponse complète via GET."""
         scanners = [
             _FakeScanner("dns", 0.5, score=80, findings=[
-                FindingData(severity="high", title="SPF manquant", description="Pas de SPF"),
+                FindingData(severity="high", title="SPF missing", description="No SPF"),
             ]),
             _FakeScanner("tls", 0.5, score=100, findings=[]),
         ]
@@ -249,7 +249,7 @@ class TestCreateScanE2E:
         assert dns_mod["score"] == 80
         assert dns_mod["status"] == "completed"
         assert len(dns_mod["findings"]) == 1
-        assert dns_mod["findings"][0]["title"] == "SPF manquant"
+        assert dns_mod["findings"][0]["title"] == "SPF missing"
         assert tls_mod["score"] == 100
         assert len(tls_mod["findings"]) == 0
 
@@ -257,8 +257,8 @@ class TestCreateScanE2E:
         """GET /api/scans/{id} retourne les modules et findings après exécution."""
         scanners = [
             _FakeScanner("headers", 1.0, score=70, findings=[
-                FindingData(severity="medium", title="CSP manquant", description="Pas de CSP"),
-                FindingData(severity="low", title="Referrer-Policy", description="Manquant"),
+                FindingData(severity="medium", title="CSP missing", description="No CSP"),
+                FindingData(severity="low", title="Referrer-Policy", description="Missing"),
             ]),
         ]
         resp = await _create_scan_with_orchestrator(client, "test.org", scanners)
@@ -312,9 +312,9 @@ class TestCreateScanE2E:
             _FakeScanner("tls", 1.0, score=70, findings=[
                 FindingData(
                     severity="critical",
-                    title="Cert expiré",
-                    description="Expiré depuis 5 jours",
-                    remediation="Renouveler avec Let's Encrypt",
+                    title="Expired cert",
+                    description="Expired 5 days ago",
+                    remediation="Renew with Let's Encrypt",
                     raw_data='{"expired_days": 5}',
                 ),
             ]),
@@ -325,9 +325,9 @@ class TestCreateScanE2E:
         get_resp = await client.get(f"/api/scans/{scan_id}")
         finding = get_resp.json()["modules"][0]["findings"][0]
         assert finding["severity"] == "critical"
-        assert finding["title"] == "Cert expiré"
-        assert finding["description"] == "Expiré depuis 5 jours"
-        assert finding["remediation"] == "Renouveler avec Let's Encrypt"
+        assert finding["title"] == "Expired cert"
+        assert finding["description"] == "Expired 5 days ago"
+        assert finding["remediation"] == "Renew with Let's Encrypt"
 
 
 # ===================================================================
