@@ -1,88 +1,88 @@
-# SecurityScoreCard — Instructions Claude Code
+# SecurityScoreCard — Claude Code Instructions
 
-## Projet
+## Project
 
-Outil d'audit passif de sécurité pour domaines web. Scans non-intrusifs → score A-F avec détail des findings.
+Passive security audit tool for web domains. Non-intrusive scans → A-F score with detailed findings.
 
 ## Architecture
 
 ```
 backend/          → FastAPI + SQLAlchemy async + aiosqlite (Python 3.12)
   app/
-    main.py       → Point d'entrée FastAPI
-    models.py     → Modèles SQLAlchemy (Scan, Finding)
-    schemas.py    → Schémas Pydantic
-    database.py   → Config DB async (SQLite /data/security.db)
+    main.py       → FastAPI entry point
+    models.py     → SQLAlchemy models (Scan, Finding)
+    schemas.py    → Pydantic schemas
+    database.py   → Async DB config (SQLite /data/security.db)
     limiter.py    → Rate limiting (slowapi)
-    routers/      → Routes API
-    scanners/     → Modules de scan (1 fichier par catégorie)
-      base.py         → Classe abstraite BaseScanner
-      orchestrator.py → Lance tous les scanners, calcule le score
+    routers/      → API routes
+    scanners/     → Scan modules (one file per category)
+      base.py         → Abstract BaseScanner class
+      orchestrator.py → Runs all scanners, computes the score
       dns.py          → SPF, DMARC, DKIM, DNSSEC, MX, CAA, MTA-STS, DANE
-      tls.py          → Certificat, versions TLS, ciphers, clé, signature
-      headers.py      → Headers HTTP, cookies, SRI, mixed content, CORS, fichiers exposés
+      tls.py          → Certificate, TLS versions, ciphers, key, signature
+      headers.py      → HTTP headers, cookies, SRI, mixed content, CORS, exposed files
       reputation.py   → AbuseIPDB / Spamhaus
-      subdomains.py   → crt.sh, détection takeover
+      subdomains.py   → crt.sh, takeover detection
       leaks.py        → HaveIBeenPwned
 frontend/         → SvelteKit 5 (static build via adapter-static) + nginx
-docker-compose.yml → 2 services : backend + frontend (port 80)
+docker-compose.yml → 2 services: backend + frontend (port 80)
 dev.sh            → Helper script (up/down/build/restart/logs/ps)
 ```
 
 ## Conventions
 
-- **Langue** : Code et commentaires en anglais, docs en français
-- **Interface web** : tout le texte visible par l'utilisateur (frontend ET messages d'API renvoyés au frontend) doit être en **anglais**
-- **Commits** : Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`)
-- **Branche principale** : `master`
-- **CI/CD** : GitHub Actions (ci.yml, release.yml, version.yml, dependabot-automerge.yml)
-- **Images Docker** : GHCR via release.yml
+- **Language**: Everything in English — code, comments, and all documentation (`CLAUDE.md`, `README.md`, `docs/`)
+- **Web interface**: all user-visible text (frontend AND API messages returned to the frontend) must be in **English**
+- **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`)
+- **Main branch**: `master`
+- **CI/CD**: GitHub Actions (ci.yml, release.yml, version.yml, dependabot-automerge.yml)
+- **Docker images**: GHCR via release.yml
 
-## Commandes de développement
+## Development commands
 
 ```bash
-# Docker (méthode principale)
-./dev.sh up          # Build + démarrage
-./dev.sh logs        # Logs temps réel
-./dev.sh down        # Arrêt
+# Docker (primary method)
+./dev.sh up          # Build + start
+./dev.sh logs        # Live logs
+./dev.sh down        # Stop
 
-# Backend local
+# Local backend
 cd backend && python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload   # http://localhost:8000
 
-# Frontend local
+# Local frontend
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-## Patterns de code
+## Code patterns
 
-### Nouveau scanner
+### New scanner
 
-Hériter de `BaseScanner` dans `scanners/base.py`. Chaque finding est un dict avec :
-- `check` : identifiant du check (ex: `"spf_missing"`)
-- `severity` : `"critical"` | `"high"` | `"medium"` | `"low"` | `"info"`
-- `title` : description courte
-- `details` : explication détaillée
+Subclass `BaseScanner` in `scanners/base.py`. Each finding is a dict with:
+- `check`: check identifier (e.g. `"spf_missing"`)
+- `severity`: `"critical"` | `"high"` | `"medium"` | `"low"` | `"info"`
+- `title`: short description
+- `details`: detailed explanation
 
-L'orchestrateur (`orchestrator.py`) appelle chaque scanner et agrège les résultats.
+The orchestrator (`orchestrator.py`) calls each scanner and aggregates the results.
 
 ### Headers scanner
 
-`headers.py` contient plusieurs sous-checks : headers HTTP, cookies, SRI, mixed content, CORS, fichiers exposés, leaky headers. C'est le fichier le plus gros — attention aux effets de bord.
+`headers.py` contains several sub-checks: HTTP headers, cookies, SRI, mixed content, CORS, exposed files, leaky headers. It is the largest file — watch out for side effects.
 
-## Variables d'environnement
+## Environment variables
 
-| Variable | Description | Requis |
-|----------|-------------|--------|
-| `ABUSEIPDB_API_KEY` | Clé API AbuseIPDB | Non (fallback Spamhaus) |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `ABUSEIPDB_API_KEY` | AbuseIPDB API key | No (Spamhaus fallback) |
 
 ## Roadmap
 
-Voir `docs/FEATURES.md` pour la liste complète des checks et leur statut d'implémentation.
+See `docs/FEATURES.md` for the full list of checks and their implementation status.
 
-## Fichiers à ne jamais commit
+## Files to never commit
 
-- `.env` (contient potentiellement des clés API)
-- `*.db` (base SQLite locale)
+- `.env` (may contain API keys)
+- `*.db` (local SQLite database)
 - `__pycache__/`, `.venv/`, `node_modules/`, `.svelte-kit/`, `build/`, `dist/`
