@@ -1,10 +1,10 @@
-"""Tests d'intégration bout-en-bout.
+"""End-to-end integration tests.
 
-Vérifie le flux complet :
-  Requête API → Orchestrateur → Scanners réels → Parsing → DB → Réponse API
+Verifies the full flow:
+  API request → Orchestrator → Real scanners → Parsing → DB → API response
 
-Seules les E/S réseau sont mockées (DNS, SSL, HTTP, socket).
-Les vrais scanners, le vrai orchestrateur et la vraie DB sont utilisés.
+Only network I/O is mocked (DNS, SSL, HTTP, socket).
+The real scanners, the real orchestrator and the real DB are used.
 """
 
 import pytest
@@ -30,7 +30,7 @@ import app.database as _db
 
 @pytest.fixture(autouse=True)
 async def _setup_db():
-    """Crée et nettoie les tables pour chaque test."""
+    """Create and clean up the tables for each test."""
     async with _db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -40,23 +40,23 @@ async def _setup_db():
 
 @pytest.fixture
 async def client():
-    """Client HTTP ASGI sans rate limiting, BackgroundTasks neutralisé."""
+    """ASGI HTTP client without rate limiting, BackgroundTasks neutralized."""
     limiter.enabled = False
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        # Neutraliser BackgroundTasks pour contrôler l'exécution de run_scan
+        # Neutralize BackgroundTasks to control the execution of run_scan
         with patch("app.routers.scans.BackgroundTasks.add_task"):
             yield c
     limiter.enabled = True
 
 
 # ===================================================================
-# Helpers pour mocker les couches réseau
+# Helpers to mock the network layers
 # ===================================================================
 
 
 def _dns_mock():
-    """Retourne un mock DNS qui simule un domaine bien configuré."""
+    """Return a DNS mock that simulates a well-configured domain."""
     resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
     resolver.nameservers = ["8.8.8.8"]
 
@@ -82,7 +82,7 @@ def _dns_mock():
                 if name.startswith("default._domainkey"):
                     return [FakeRecord('"v=DKIM1; k=rsa; p=ABC"')]
                 raise dns.resolver.NXDOMAIN()
-            # TXT du domaine principal → SPF
+            # TXT of the main domain → SPF
             return [FakeRecord('"v=spf1 include:_spf.google.com ~all"')]
         if rdtype == "DNSKEY":
             raise dns.resolver.NoAnswer()
@@ -99,7 +99,7 @@ def _dns_mock():
 
 
 def _ssl_mock_context():
-    """Retourne les patchs pour simuler une connexion TLS saine."""
+    """Return the patches to simulate a healthy TLS connection."""
     from tests.conftest import make_cert_info
 
     cert_info = make_cert_info(
@@ -118,7 +118,7 @@ def _ssl_mock_context():
 
 
 def _reputation_patches():
-    """Patches pour le scanner reputation : socket + pas d'API key."""
+    """Patches for the reputation scanner: socket + no API key."""
     return {
         "resolve_ips": patch(
             "app.scanners.reputation._resolve_ips",
@@ -132,23 +132,23 @@ def _reputation_patches():
 
 
 # ===================================================================
-# Test d'intégration : flux complet avec tous les scanners réels
+# Integration test: full flow with all the real scanners
 # ===================================================================
 
 
 class TestFullIntegration:
-    """Flux Requête API → Orchestrateur → 7 Scanners réels → DB → API GET."""
+    """Flow API request → Orchestrator → 7 real scanners → DB → API GET."""
 
     async def test_full_scan_flow_with_real_scanners(self, client):
         """
-        Crée un scan via l'API, exécute le vrai orchestrateur avec les vrais
-        scanners (réseau mocké), puis vérifie la réponse GET.
+        Create a scan via the API, run the real orchestrator with the real
+        scanners (network mocked), then verify the GET response.
         """
         dns_resolver = _dns_mock()
         cert_info = _ssl_mock_context()
         rep_patches = _reputation_patches()
 
-        # Headers HTTP sécurisés
+        # Secure HTTP headers
         secure_headers = {
             "strict-transport-security": "max-age=31536000",
             "content-security-policy": "default-src 'self'",
@@ -162,29 +162,29 @@ class TestFullIntegration:
         }
 
         with (
-            # DNS : mock le constructeur du Resolver
+            # DNS: mock the Resolver constructor
             patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=dns_resolver),
-            # TLS : mock _get_cert_info
+            # TLS: mock _get_cert_info
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock, return_value=cert_info),
-            # TLS : testssl non disponible
+            # TLS: testssl not available
             patch("app.scanners.testssl_runner.is_available", return_value=False),
             # Reputation
             rep_patches["resolve_ips"],
             rep_patches["spamhaus"],
             rep_patches["env_key"],
-            # Subdomains : pas de sous-domaines
+            # Subdomains: no subdomains
             patch("app.scanners.subdomains._fetch_subdomains", new_callable=AsyncMock, return_value=set()),
-            # Ports : nmap non disponible + whois mocké
+            # Ports: nmap not available + whois mocked
             patch("app.scanners.ports.is_available", return_value=False),
             patch("app.scanners.ports._check_whois", new_callable=AsyncMock),
-            # Leaks + Headers : mock HTTP via respx
+            # Leaks + Headers: mock HTTP via respx
             respx.mock,
         ):
-            # HIBP : aucune breach
+            # HIBP: no breach
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
                 return_value=httpx.Response(404)
             )
-            # Headers : page avec headers sécurisés
+            # Headers: page with secure headers
             respx.get(url__regex=r"https://integration-test\.com.*").mock(
                 return_value=httpx.Response(
                     200,
@@ -196,25 +196,25 @@ class TestFullIntegration:
                 return_value=httpx.Response(200)
             )
 
-            # 1. Créer le scan via l'API
+            # 1. Create the scan via the API
             resp = await client.post("/api/scans", json={"domain": "integration-test.com"})
             assert resp.status_code == 201
             scan_id = resp.json()["id"]
             assert resp.json()["status"] == "pending"
             assert resp.json()["domain"] == "integration-test.com"
 
-            # 2. Exécuter l'orchestrateur directement (BackgroundTasks ne s'exécute pas dans les tests)
+            # 2. Run the orchestrator directly (BackgroundTasks does not run in the tests)
             from app.scanners.orchestrator import run_scan
             await run_scan(scan_id, "integration-test.com")
 
-            # 3. GET le scan complété
+            # 3. GET the completed scan
             resp = await client.get(f"/api/scans/{scan_id}")
             assert resp.status_code == 200
             data = resp.json()
 
-        # --- Vérifications structurelles ---
+        # --- Structural checks ---
 
-        # Statut et score
+        # Status and score
         assert data["status"] == "completed"
         assert data["score"] is not None
         assert 0 <= data["score"] <= 100
@@ -222,20 +222,20 @@ class TestFullIntegration:
         assert data["started_at"] is not None
         assert data["completed_at"] is not None
 
-        # 6 modules créés (un par scanner)
+        # 6 modules created (one per scanner)
         modules = data["modules"]
         assert len(modules) == 7
         module_names = {m["name"] for m in modules}
         assert module_names == {"dns", "tls", "headers", "reputation", "subdomains", "leaks", "ports"}
 
-        # Chaque module a un score, un statut completed, et des timestamps
+        # Each module has a score, a completed status, and timestamps
         for m in modules:
             assert m["status"] == "completed", f"Module {m['name']} not completed: {m['status']}"
             assert m["score"] is not None, f"Module {m['name']} has no score"
             assert 0 <= m["score"] <= 100
             assert m["weight"] > 0
 
-        # Les findings sont des objets avec les bons champs
+        # The findings are objects with the right fields
         all_findings = []
         for m in modules:
             for f in m["findings"]:
@@ -245,7 +245,7 @@ class TestFullIntegration:
                 assert f["severity"] in ("critical", "high", "medium", "low", "info")
                 all_findings.append(f)
 
-        # Le score global est cohérent avec la formule de pondération
+        # The global score is consistent with the weighting formula
         total_weight = sum(m["weight"] for m in modules)
         expected_score = round(
             sum(m["score"] * m["weight"] for m in modules) / total_weight
@@ -254,17 +254,17 @@ class TestFullIntegration:
 
     async def test_full_scan_with_findings_persisted(self, client):
         """
-        Scénario avec un domaine mal configuré — vérifie que les findings
-        sont correctement persistés et retournés via l'API.
+        Scenario with a misconfigured domain — verifies that the findings
+        are correctly persisted and returned via the API.
         """
         dns_resolver = _dns_mock()
 
-        # DNS mock modifié : pas de SPF
+        # Modified DNS mock: no SPF
         original_resolve = dns_resolver.resolve.side_effect
 
         async def bad_dns_resolve(name, rdtype):
             if rdtype == "TXT" and not name.startswith("_"):
-                # Pas de SPF
+                # No SPF
                 class FakeRecord:
                     def to_text(self):
                         return '"some-other-txt-record"'
@@ -273,7 +273,7 @@ class TestFullIntegration:
 
         dns_resolver.resolve = AsyncMock(side_effect=bad_dns_resolve)
 
-        # TLS : cert expiré
+        # TLS: expired cert
         from tests.conftest import make_cert_info
         expired_cert = make_cert_info(
             not_after=datetime.now(timezone.utc) - timedelta(days=5),
@@ -298,7 +298,7 @@ class TestFullIntegration:
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
                 return_value=httpx.Response(404)
             )
-            # Headers : aucun header de sécurité
+            # Headers: no security header
             respx.get(url__regex=r"https://bad-domain\.com.*").mock(
                 return_value=httpx.Response(200, text="<html></html>")
             )
@@ -316,29 +316,29 @@ class TestFullIntegration:
             data = resp.json()
 
         assert data["status"] == "completed"
-        # Score doit être < 100 (cert expiré = critical, headers manquants, SPF manquant)
+        # Score must be < 100 (expired cert = critical, missing headers, missing SPF)
         assert data["score"] < 100
 
-        # Vérifier des findings spécifiques
+        # Check specific findings
         all_findings = []
         for m in data["modules"]:
             all_findings.extend(m["findings"])
 
         titles = [f["title"] for f in all_findings]
 
-        # Cert expiré → finding critique
+        # Expired cert → critical finding
         assert any("expiré" in t.lower() for t in titles), f"No expired cert finding in {titles}"
-        # SPF manquant → finding
+        # Missing SPF → finding
         assert any("SPF" in t for t in titles), f"No SPF finding in {titles}"
-        # Headers de sécurité manquants → findings
+        # Missing security headers → findings
         assert any("HSTS" in t for t in titles), f"No HSTS finding in {titles}"
 
-        # Chaque finding a une description non vide
+        # Each finding has a non-empty description
         for f in all_findings:
             assert len(f["description"]) > 0
 
     async def test_list_endpoint_returns_completed_scan(self, client):
-        """Après un scan complet, GET /api/scans le liste correctement."""
+        """After a full scan, GET /api/scans lists it correctly."""
         dns_resolver = _dns_mock()
         cert_info = _ssl_mock_context()
         rep_patches = _reputation_patches()
@@ -371,7 +371,7 @@ class TestFullIntegration:
             from app.scanners.orchestrator import run_scan
             await run_scan(scan_id, "list-test.com")
 
-            # GET /api/scans — le scan doit apparaître dans la liste
+            # GET /api/scans — the scan must appear in the list
             resp = await client.get("/api/scans")
             assert resp.status_code == 200
             scans = resp.json()
@@ -383,7 +383,7 @@ class TestFullIntegration:
             assert found[0]["score"] is not None
 
     async def test_rescan_replaces_modules_and_findings(self, client):
-        """Le rescan supprime les anciens modules/findings et en crée de nouveaux."""
+        """The rescan deletes the old modules/findings and creates new ones."""
         dns_resolver = _dns_mock()
         cert_info = _ssl_mock_context()
         rep_patches = _reputation_patches()
@@ -410,7 +410,7 @@ class TestFullIntegration:
                 return_value=httpx.Response(200)
             )
 
-            # Premier scan
+            # First scan
             resp = await client.post("/api/scans", json={"domain": "rescan-test.com"})
             scan_id = resp.json()["id"]
 
@@ -431,24 +431,24 @@ class TestFullIntegration:
             second_data = resp.json()
             second_module_ids = {m["id"] for m in second_data["modules"]}
 
-        # Même scan_id, même domain
+        # Same scan_id, same domain
         assert second_data["id"] == scan_id
         assert second_data["domain"] == "rescan-test.com"
         assert second_data["status"] == "completed"
 
-        # Les modules sont nouveaux (IDs différents)
+        # The modules are new (different IDs)
         assert first_module_ids.isdisjoint(second_module_ids)
         assert len(second_data["modules"]) == 7
 
     async def test_scanner_failure_handled_in_full_flow(self, client):
-        """Un scanner qui crashe n'empêche pas les autres de compléter."""
+        """A scanner that crashes does not prevent the others from completing."""
         dns_resolver = _dns_mock()
         cert_info = _ssl_mock_context()
         rep_patches = _reputation_patches()
 
         with (
             patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=dns_resolver),
-            # TLS crashe
+            # TLS crashes
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=Exception("TLS scanner crashed")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
@@ -482,21 +482,21 @@ class TestFullIntegration:
         assert data["status"] == "completed"
         modules_by_name = {m["name"]: m for m in data["modules"]}
 
-        # TLS est en erreur — le scanner de base capture l'exception et retourne un finding critical
+        # TLS is in error — the base scanner catches the exception and returns a critical finding
         tls = modules_by_name["tls"]
         assert tls["status"] == "completed"
-        # Le scanner TLS gère l'exception avec un finding "Connexion TLS impossible"
+        # The TLS scanner handles the exception with a "Connexion TLS impossible" finding
         tls_findings = tls["findings"]
         assert len(tls_findings) >= 1
         assert any("TLS" in f["title"] or "impossible" in f["title"].lower() for f in tls_findings)
 
-        # Les autres scanners ont complété normalement
+        # The other scanners completed normally
         for name in ("dns", "headers", "reputation", "subdomains", "leaks", "ports"):
             assert modules_by_name[name]["status"] == "completed"
             assert modules_by_name[name]["score"] is not None
 
     async def test_delete_scan_removes_everything(self, client):
-        """DELETE /api/scans/{id} supprime scan + modules + findings (cascade)."""
+        """DELETE /api/scans/{id} deletes scan + modules + findings (cascade)."""
         dns_resolver = _dns_mock()
         cert_info = _ssl_mock_context()
         rep_patches = _reputation_patches()
@@ -529,28 +529,28 @@ class TestFullIntegration:
             from app.scanners.orchestrator import run_scan
             await run_scan(scan_id, "delete-test.com")
 
-            # Confirmer que le scan existe
+            # Confirm that the scan exists
             resp = await client.get(f"/api/scans/{scan_id}")
             assert resp.status_code == 200
             assert len(resp.json()["modules"]) == 7
 
-            # Supprimer
+            # Delete
             resp = await client.delete(f"/api/scans/{scan_id}")
             assert resp.status_code == 204
 
-            # Le scan n'existe plus
+            # The scan no longer exists
             resp = await client.get(f"/api/scans/{scan_id}")
             assert resp.status_code == 404
 
     async def test_finding_fields_survive_serialization(self, client):
         """
-        Vérifie que les champs FindingData (severity, title, description,
-        remediation) survivent au passage Scanner → DB → API JSON.
+        Verify that the FindingData fields (severity, title, description,
+        remediation) survive the path Scanner → DB → API JSON.
         """
         dns_resolver = _dns_mock()
         rep_patches = _reputation_patches()
 
-        # Cert expiré pour forcer un finding avec remediation non-null
+        # Expired cert to force a finding with non-null remediation
         from tests.conftest import make_cert_info
         expired_cert = make_cert_info(
             not_after=datetime.now(timezone.utc) - timedelta(days=5),
@@ -587,7 +587,7 @@ class TestFullIntegration:
             resp = await client.get(f"/api/scans/{scan_id}")
             data = resp.json()
 
-        # Trouver le finding "Certificat TLS expiré"
+        # Find the "Certificat TLS expiré" finding
         tls_module = next(m for m in data["modules"] if m["name"] == "tls")
         expired_finding = next(
             (f for f in tls_module["findings"] if "expiré" in f["title"].lower()),
@@ -603,8 +603,8 @@ class TestFullIntegration:
 
     async def test_weighted_score_calculation_end_to_end(self, client):
         """
-        Vérifie que le score global est bien la moyenne pondérée des modules,
-        calculée par l'orchestrateur et retournée par l'API.
+        Verify that the global score is indeed the weighted average of the modules,
+        computed by the orchestrator and returned by the API.
         """
         dns_resolver = _dns_mock()
         cert_info = _ssl_mock_context()
@@ -647,6 +647,6 @@ class TestFullIntegration:
 
         assert data["score"] == expected
 
-        # Le grade correspond au score
+        # The grade matches the score
         from app.scanners.orchestrator import score_to_grade
         assert data["grade"] == score_to_grade(data["score"])

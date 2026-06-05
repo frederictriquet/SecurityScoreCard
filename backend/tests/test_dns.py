@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.dns — DnsScanner et tous ses checks."""
+"""Tests for app.scanners.dns — DnsScanner and all its checks."""
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -154,7 +154,7 @@ class TestDkim:
         assert "DKIM" in findings[0].title
 
     async def test_dkim_found_on_later_selector(self, scanner, resolver):
-        """Simule un échec sur les premiers sélecteurs puis succès sur un suivant."""
+        """Simulate a failure on the first selectors then success on a later one."""
         call_count = 0
 
         async def resolve_side_effect(name, rdtype):
@@ -288,7 +288,7 @@ class TestMtaSts:
 
 class TestDane:
     async def test_dane_present(self, scanner, resolver):
-        """TLSA trouvé pour le premier MX."""
+        """TLSA found for the first MX."""
         call_count = 0
 
         async def resolve_side_effect(name, rdtype):
@@ -306,7 +306,7 @@ class TestDane:
         assert len(findings) == 0
 
     async def test_dane_missing(self, scanner, resolver):
-        """MX existe mais pas de TLSA."""
+        """MX exists but no TLSA."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "MX":
                 return FakeDnsAnswer([FakeMxRecord("mail.example.com.")])
@@ -320,14 +320,14 @@ class TestDane:
         assert "DANE" in findings[0].title or "TLSA" in findings[0].title
 
     async def test_dane_no_mx_skips(self, scanner, resolver):
-        """Pas de MX → pas de vérification DANE."""
+        """No MX → no DANE check."""
         resolver.resolve = AsyncMock(side_effect=Exception("no MX"))
         findings = []
         await scanner._check_dane("example.com", resolver, findings)
         assert len(findings) == 0
 
     async def test_dane_multiple_mx_first_has_tlsa(self, scanner, resolver):
-        """Plusieurs MX, TLSA trouvé sur le deuxième."""
+        """Multiple MX, TLSA found on the second one."""
         call_count = 0
 
         async def resolve_side_effect(name, rdtype):
@@ -503,7 +503,7 @@ class FakeNsRecord:
 
 
 class FakeARecord:
-    """Simule un record A pour str(record) → IP."""
+    """Simulate an A record for str(record) → IP."""
     def __init__(self, ip: str):
         self._ip = ip
 
@@ -513,14 +513,14 @@ class FakeARecord:
 
 class TestAxfr:
     async def test_axfr_no_ns_records(self, scanner, resolver):
-        """Pas de NS → pas de vérification AXFR."""
+        """No NS → no AXFR check."""
         resolver.resolve = AsyncMock(side_effect=Exception("no NS"))
         findings = []
         await scanner._check_axfr("example.com", resolver, findings)
         assert len(findings) == 0
 
     async def test_axfr_possible(self, scanner, resolver):
-        """Un NS autorise le transfert de zone → finding critical."""
+        """An NS allows zone transfer → critical finding."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com.")]
@@ -536,7 +536,7 @@ class TestAxfr:
         assert "AXFR" in findings[0].title
 
     async def test_axfr_not_possible(self, scanner, resolver):
-        """Aucun NS n'autorise le transfert → pas de finding."""
+        """No NS allows the transfer → no finding."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com.")]
@@ -550,7 +550,7 @@ class TestAxfr:
         assert len(findings) == 0
 
     async def test_axfr_exception_on_try(self, scanner, resolver):
-        """Exception pendant le test AXFR → silencieux, continue."""
+        """Exception during the AXFR attempt → silent, continues."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
@@ -564,7 +564,7 @@ class TestAxfr:
         assert len(findings) == 0
 
     def test_try_axfr_returns_false_on_error(self):
-        """_try_axfr retourne False si le transfert échoue."""
+        """_try_axfr returns False if the transfer fails."""
         from app.scanners.dns import _try_axfr
         with patch("app.scanners.dns.dns.query.xfr", side_effect=Exception("refused")):
             assert _try_axfr("ns.example.com", "example.com") is False
@@ -577,7 +577,7 @@ class TestAxfr:
 
 class TestWildcard:
     async def test_wildcard_detected(self, scanner, resolver):
-        """Un sous-domaine aléatoire résout → wildcard détecté."""
+        """A random subdomain resolves → wildcard detected."""
         resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
             FakeTxtRecord("1.2.3.4")
         ]))
@@ -588,7 +588,7 @@ class TestWildcard:
         assert "Wildcard" in findings[0].title
 
     async def test_no_wildcard(self, scanner, resolver):
-        """Le sous-domaine aléatoire ne résout pas → pas de wildcard."""
+        """The random subdomain does not resolve → no wildcard."""
         resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
         findings = []
         await scanner._check_wildcard("example.com", resolver, findings)
@@ -602,7 +602,7 @@ class TestWildcard:
 
 class TestNsRedundancy:
     async def test_single_ns(self, scanner, resolver):
-        """Un seul NS → finding medium."""
+        """A single NS → medium finding."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com.")]
@@ -616,7 +616,7 @@ class TestNsRedundancy:
         assert "1 serveur" in findings[0].title
 
     async def test_two_ns_different_networks(self, scanner, resolver):
-        """2 NS sur des /24 différents → pas de finding."""
+        """2 NS on different /24 → no finding."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
@@ -629,12 +629,12 @@ class TestNsRedundancy:
         resolver.resolve = resolve_side_effect
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
-        # Pas de finding car les réseaux /24 sont différents
+        # No finding because the /24 networks are different
         ns_findings = [f for f in findings if "NS" in f.title or "serveur" in f.title.lower()]
         assert len(ns_findings) == 0
 
     async def test_two_ns_same_network(self, scanner, resolver):
-        """2 NS sur le même /24 → finding medium."""
+        """2 NS on the same /24 → medium finding."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
@@ -651,14 +651,14 @@ class TestNsRedundancy:
         assert "même réseau" in findings[0].title.lower() or "même sous-réseau" in findings[0].description.lower()
 
     async def test_ns_resolve_fails(self, scanner, resolver):
-        """Impossible de résoudre NS → pas de finding, pas de crash."""
+        """Cannot resolve NS → no finding, no crash."""
         resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
         assert len(findings) == 0
 
     async def test_ns_a_record_fails_gracefully(self, scanner, resolver):
-        """NS existent mais leurs A records ne résolvent pas → pas de finding réseau."""
+        """NS exist but their A records do not resolve → no network finding."""
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
@@ -669,7 +669,7 @@ class TestNsRedundancy:
         resolver.resolve = resolve_side_effect
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
-        # Pas de finding "même réseau" car on n'a pas pu résoudre les IPs
+        # No "same network" finding because we could not resolve the IPs
         network_findings = [f for f in findings if "réseau" in f.title.lower() or "réseau" in f.description.lower()]
         assert len(network_findings) == 0
 
@@ -681,7 +681,7 @@ class TestNsRedundancy:
 
 class TestDnsFullScan:
     async def test_full_scan_returns_scan_result(self, scanner):
-        """Vérifie que scan() retourne un ScanResult même si tout échoue."""
+        """Verify that scan() returns a ScanResult even if everything fails."""
         with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
             mock_instance = MockResolver.return_value
             mock_instance.resolve = AsyncMock(side_effect=Exception("mocked"))
@@ -697,19 +697,19 @@ class TestDnsFullScan:
 
 
 def _puny(unicode_label: str) -> str:
-    """Encode un label Unicode en Punycode (forme reçue par le scanner)."""
+    """Encode a Unicode label into Punycode (the form received by the scanner)."""
     return unicode_label.encode("idna").decode("ascii")
 
 
 class TestIdnHomograph:
     async def test_pure_ascii_no_finding(self, scanner):
-        """Un domaine ASCII pur ne déclenche aucun finding homographe."""
+        """A pure ASCII domain triggers no homograph finding."""
         findings = []
         await scanner._check_idn_homograph("example.com", findings)
         assert findings == []
 
     async def test_mixed_script_high(self, scanner):
-        """« pаypal » (а cyrillique) mélange latin + cyrillique → high."""
+        """« pаypal » (Cyrillic а) mixes Latin + Cyrillic → high."""
         domain = f"{_puny('pаypal')}.com"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -719,7 +719,7 @@ class TestIdnHomograph:
         assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
 
     async def test_whole_script_confusable_medium(self, scanner):
-        """Label entièrement cyrillique imitant « apple » → medium."""
+        """Fully Cyrillic label imitating « apple » → medium."""
         domain = f"{_puny('аррӏе')}.com"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -728,7 +728,7 @@ class TestIdnHomograph:
         assert "confusable" in findings[0].title.lower()
 
     async def test_legit_idn_non_latin_info(self, scanner):
-        """Un IDN légitime en script non latin (CJK) → info, pas d'alerte."""
+        """A legitimate IDN in a non-Latin script (CJK) → info, no alert."""
         domain = f"{_puny('中国')}.com"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -737,8 +737,8 @@ class TestIdnHomograph:
         assert "internationalisé" in findings[0].title
 
     async def test_japanese_han_hiragana_not_high(self, scanner):
-        """« 東京めがね.jp » mélange Han + Hiragana ({CJK, HIRAGANA}) : c'est un
-        IDN japonais légitime (UTS#39), il ne doit PAS être classé « high »."""
+        """« 東京めがね.jp » mixes Han + Hiragana ({CJK, HIRAGANA}): this is a
+        legitimate Japanese IDN (UTS#39), it must NOT be classified as « high »."""
         domain = f"{_puny('東京めがね')}.jp"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -747,8 +747,8 @@ class TestIdnHomograph:
         assert "internationalisé" in findings[0].title
 
     async def test_japanese_katakana_prolonged_mark_not_high(self, scanner):
-        """« ソニー » (katakana + marque d'allongement « ー », donc
-        {KATAKANA, KATAKANA-HIRAGANA}) est un nom japonais valide → pas « high »."""
+        """« ソニー » (katakana + prolonged sound mark « ー », hence
+        {KATAKANA, KATAKANA-HIRAGANA}) is a valid Japanese name → not « high »."""
         domain = f"{_puny('ソニー')}.jp"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -756,8 +756,8 @@ class TestIdnHomograph:
         assert findings[0].severity == "info"
 
     async def test_korean_han_hangul_not_high(self, scanner):
-        """Un label coréen mélangeant Han + Hangul ({CJK, HANGUL}) est légitime
-        (UTS#39) et ne doit pas être classé « high »."""
+        """A Korean label mixing Han + Hangul ({CJK, HANGUL}) is legitimate
+        (UTS#39) and must not be classified as « high »."""
         domain = f"{_puny('한국例')}.kr"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -765,8 +765,8 @@ class TestIdnHomograph:
         assert findings[0].severity == "info"
 
     async def test_cjk_cyrillic_still_high(self, scanner):
-        """Un mélange CJK + cyrillique n'est PAS une combinaison whitelistée :
-        il doit rester « high » (la whitelist JP/KR ne l'absorbe pas)."""
+        """A CJK + Cyrillic mix is NOT a whitelisted combination:
+        it must stay « high » (the JP/KR whitelist does not absorb it)."""
         domain = f"{_puny('例е')}.com"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -775,7 +775,7 @@ class TestIdnHomograph:
         assert "CJK" in findings[0].raw_data and "CYRILLIC" in findings[0].raw_data
 
     async def test_accented_latin_info(self, scanner):
-        """Un label latin accentué (« café ») reste mono-script → info."""
+        """An accented Latin label (« café ») stays mono-script → info."""
         domain = f"{_puny('café')}.com"
         findings = []
         await scanner._check_idn_homograph(domain, findings)
@@ -783,33 +783,33 @@ class TestIdnHomograph:
         assert findings[0].severity == "info"
 
     async def test_invalid_punycode_skipped(self, scanner):
-        """Un label xn-- mal formé est ignoré sans crash ni finding."""
+        """A malformed xn-- label is ignored without crash or finding."""
         findings = []
         await scanner._check_idn_homograph("xn--!!!invalid.com", findings)
         assert findings == []
 
     async def test_no_resolver_needed(self, scanner):
-        """Le check est purement local : sa signature n'attend aucun resolver et
-        il produit son finding sans aucune dépendance réseau."""
+        """The check is purely local: its signature expects no resolver and
+        it produces its finding without any network dependency."""
         findings = []
         await scanner._check_idn_homograph(f"{_puny('pаypal')}.fr", findings)
         assert len(findings) == 1
 
     async def test_end_to_end_unicode_homograph(self, scanner):
-        """Bout en bout : un homographe Unicode collé tel quel par une victime
-        traverse le validateur (→ Punycode) puis déclenche le finding « high ».
+        """End to end: a Unicode homograph pasted as-is by a victim
+        passes through the validator (→ Punycode) then triggers the « high » finding.
 
-        C'est le cas d'usage réel : l'utilisateur n'entre PAS la forme xn--, il
-        colle « pаypal.com » (« а » cyrillique). Sans la conversion idna du
-        validateur, l'entrée serait rejetée avant d'atteindre ce scanner.
+        This is the real use case: the user does NOT enter the xn-- form, they
+        paste « pаypal.com » (Cyrillic « а »). Without the validator's idna
+        conversion, the input would be rejected before reaching this scanner.
         """
         from app.schemas import ScanCreate
 
-        # 1. Le validateur accepte l'Unicode visible et le convertit en Punycode.
+        # 1. The validator accepts the visible Unicode and converts it to Punycode.
         domain = ScanCreate(domain="pаypal.com").domain
-        assert domain.startswith("xn--")  # bien passé en Punycode
+        assert domain.startswith("xn--")  # properly converted to Punycode
 
-        # 2. Le scanner reçoit cette forme et détecte le mélange de scripts.
+        # 2. The scanner receives this form and detects the script mix.
         findings = []
         await scanner._check_idn_homograph(domain, findings)
         assert len(findings) == 1
@@ -817,8 +817,8 @@ class TestIdnHomograph:
         assert "CYRILLIC" in findings[0].raw_data and "LATIN" in findings[0].raw_data
 
     async def test_end_to_end_scan_flags_homograph(self, scanner):
-        """Bout en bout via scan() : le domaine homographe converti par le
-        validateur ressort bien dans les findings de l'orchestrateur DNS."""
+        """End to end via scan(): the homograph domain converted by the
+        validator does surface in the DNS orchestrator's findings."""
         from app.schemas import ScanCreate
 
         domain = ScanCreate(domain="pаypal.com").domain

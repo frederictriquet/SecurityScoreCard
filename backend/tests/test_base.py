@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.base — FindingData, ScanResult, BaseScanner."""
+"""Tests for app.scanners.base — FindingData, ScanResult, BaseScanner."""
 
 import pytest
 
@@ -96,7 +96,7 @@ class TestScanResult:
     def test_unknown_severity_no_deduction(self):
         findings = [FindingData(severity="unknown", title="T", description="D")]
         result = ScanResult.from_findings(findings)
-        assert result.score == 100  # clé inconnue → SEVERITY_DEDUCTIONS.get() → 0
+        assert result.score == 100  # unknown key → SEVERITY_DEDUCTIONS.get() → 0
 
     def test_findings_preserved_in_result(self):
         findings = [

@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.testssl_runner — parsing testssl.sh et orchestration."""
+"""Tests for app.scanners.testssl_runner — testssl.sh parsing and orchestration."""
 
 import json
 import os
@@ -18,13 +18,13 @@ from app.scanners.base import FindingData
 
 
 # ===================================================================
-# _process_entry — vulnérabilités TLS
+# _process_entry — TLS vulnerabilities
 # ===================================================================
 
 
 class TestProcessEntryVulnerabilities:
     def test_heartbleed_critical(self):
-        """Heartbleed avec severity CRITICAL → finding critical."""
+        """Heartbleed with severity CRITICAL → critical finding."""
         findings = []
         _process_entry({"id": "heartbleed", "severity": "CRITICAL", "finding": "VULNERABLE"}, findings)
         assert len(findings) == 1
@@ -33,7 +33,7 @@ class TestProcessEntryVulnerabilities:
         assert "CVE-2014-0160" in findings[0].title
 
     def test_poodle_high(self):
-        """POODLE avec severity HIGH → finding high."""
+        """POODLE with severity HIGH → high finding."""
         findings = []
         _process_entry({"id": "POODLE_SSL", "severity": "HIGH", "finding": "VULNERABLE"}, findings)
         assert len(findings) == 1
@@ -41,7 +41,7 @@ class TestProcessEntryVulnerabilities:
         assert "POODLE" in findings[0].title
 
     def test_drown_critical(self):
-        """DROWN avec severity CRITICAL → finding critical."""
+        """DROWN with severity CRITICAL → critical finding."""
         findings = []
         _process_entry({"id": "DROWN", "severity": "CRITICAL", "finding": "VULNERABLE"}, findings)
         assert len(findings) == 1
@@ -50,7 +50,7 @@ class TestProcessEntryVulnerabilities:
         assert "CVE-2016-0800" in findings[0].title
 
     def test_beast_medium(self):
-        """BEAST avec severity MEDIUM → finding medium."""
+        """BEAST with severity MEDIUM → medium finding."""
         findings = []
         _process_entry({"id": "BEAST", "severity": "MEDIUM", "finding": "VULNERABLE"}, findings)
         assert len(findings) == 1
@@ -58,7 +58,7 @@ class TestProcessEntryVulnerabilities:
         assert "BEAST" in findings[0].title
 
     def test_rc4_high(self):
-        """RC4 avec severity HIGH → finding high."""
+        """RC4 with severity HIGH → high finding."""
         findings = []
         _process_entry({"id": "RC4", "severity": "HIGH", "finding": "offered"}, findings)
         assert len(findings) == 1
@@ -66,7 +66,7 @@ class TestProcessEntryVulnerabilities:
         assert "RC4" in findings[0].title
 
     def test_all_vuln_checks_have_required_fields(self):
-        """Chaque entrée dans _VULN_CHECKS a title, description, remediation."""
+        """Each entry in _VULN_CHECKS has title, description, remediation."""
         for vuln_id, info in _VULN_CHECKS.items():
             assert "title" in info, f"{vuln_id} manque 'title'"
             assert "description" in info, f"{vuln_id} manque 'description'"
@@ -74,7 +74,7 @@ class TestProcessEntryVulnerabilities:
 
     @pytest.mark.parametrize("vuln_id", list(_VULN_CHECKS.keys()))
     def test_each_vuln_produces_finding(self, vuln_id):
-        """Chaque vulnérabilité connue produit un finding quand severity est mappée."""
+        """Each known vulnerability produces a finding when severity is mapped."""
         findings = []
         _process_entry({"id": vuln_id, "severity": "HIGH", "finding": "VULNERABLE"}, findings)
         assert len(findings) == 1
@@ -97,31 +97,31 @@ class TestProcessEntrySeverityMapping:
         ("WARN", "medium"),
     ])
     def test_severity_mapping(self, testssl_sev, expected):
-        """Chaque niveau testssl est correctement mappé."""
+        """Each testssl level is correctly mapped."""
         findings = []
         _process_entry({"id": "heartbleed", "severity": testssl_sev, "finding": "VULNERABLE"}, findings)
         assert findings[0].severity == expected
 
     def test_ok_severity_no_finding(self):
-        """Severity OK → pas de finding."""
+        """Severity OK → no finding."""
         findings = []
         _process_entry({"id": "heartbleed", "severity": "OK", "finding": "not vulnerable"}, findings)
         assert len(findings) == 0
 
     def test_info_severity_no_finding(self):
-        """Severity INFO → pas de finding."""
+        """Severity INFO → no finding."""
         findings = []
         _process_entry({"id": "heartbleed", "severity": "INFO", "finding": "something"}, findings)
         assert len(findings) == 0
 
     def test_unknown_severity_no_finding(self):
-        """Severity inconnue → pas de finding."""
+        """Unknown severity → no finding."""
         findings = []
         _process_entry({"id": "heartbleed", "severity": "UNKNOWN", "finding": "?"}, findings)
         assert len(findings) == 0
 
     def test_empty_severity_no_finding(self):
-        """Severity absente (défaut 'OK') → pas de finding."""
+        """Severity absent (defaults to 'OK') → no finding."""
         findings = []
         _process_entry({"id": "heartbleed", "finding": "not vulnerable"}, findings)
         assert len(findings) == 0
@@ -134,7 +134,7 @@ class TestProcessEntrySeverityMapping:
 
 class TestProcessEntryCertChecks:
     def test_cert_chain_of_trust_invalid(self):
-        """Chaîne de certificats invalide → finding."""
+        """Invalid certificate chain → finding."""
         findings = []
         _process_entry({"id": "cert_chain_of_trust", "severity": "HIGH", "finding": "NOT ok"}, findings)
         assert len(findings) == 1
@@ -142,7 +142,7 @@ class TestProcessEntryCertChecks:
         assert findings[0].severity == "high"
 
     def test_intermediate_cert_missing(self):
-        """Certificat intermédiaire manquant → finding."""
+        """Missing intermediate certificate → finding."""
         findings = []
         _process_entry({"id": "intermediate_cert", "severity": "MEDIUM", "finding": "missing"}, findings)
         assert len(findings) == 1
@@ -150,7 +150,7 @@ class TestProcessEntryCertChecks:
         assert findings[0].severity == "medium"
 
     def test_cert_check_ok_no_finding(self):
-        """Cert check avec severity OK → pas de finding."""
+        """Cert check with severity OK → no finding."""
         findings = []
         _process_entry({"id": "cert_chain_of_trust", "severity": "OK", "finding": "all good"}, findings)
         assert len(findings) == 0
@@ -163,7 +163,7 @@ class TestProcessEntryCertChecks:
 
 class TestProcessEntrySpecialChecks:
     def test_ocsp_not_offered(self):
-        """OCSP stapling 'not offered' → finding medium."""
+        """OCSP stapling 'not offered' → medium finding."""
         findings = []
         _process_entry({
             "id": "OCSP_stapling",
@@ -175,7 +175,7 @@ class TestProcessEntrySpecialChecks:
         assert "OCSP" in findings[0].title
 
     def test_ocsp_offered_no_finding(self):
-        """OCSP stapling offert → pas de finding."""
+        """OCSP stapling offered → no finding."""
         findings = []
         _process_entry({
             "id": "OCSP_stapling",
@@ -185,7 +185,7 @@ class TestProcessEntrySpecialChecks:
         assert len(findings) == 0
 
     def test_ct_no_sct(self):
-        """Certificate Transparency sans SCT → finding medium."""
+        """Certificate Transparency without SCT → medium finding."""
         findings = []
         _process_entry({
             "id": "certificate_transparency",
@@ -197,7 +197,7 @@ class TestProcessEntrySpecialChecks:
         assert "Certificate Transparency" in findings[0].title
 
     def test_ct_sct_present_no_finding(self):
-        """Certificate Transparency avec SCT → pas de finding."""
+        """Certificate Transparency with SCT → no finding."""
         findings = []
         _process_entry({
             "id": "certificate_transparency",
@@ -207,43 +207,43 @@ class TestProcessEntrySpecialChecks:
         assert len(findings) == 0
 
     def test_special_check_returns_early(self):
-        """Les special checks retournent avant les vuln/cert checks (même si severity HIGH)."""
+        """Special checks return before the vuln/cert checks (even with severity HIGH)."""
         findings = []
         _process_entry({
             "id": "OCSP_stapling",
             "severity": "HIGH",
             "finding": "offered",
         }, findings)
-        # OCSP offert → pas de finding, même avec severity HIGH
+        # OCSP offered → no finding, even with severity HIGH
         assert len(findings) == 0
 
 
 # ===================================================================
-# _process_entry — entries inconnues / malformées
+# _process_entry — unknown / malformed entries
 # ===================================================================
 
 
 class TestProcessEntryEdgeCases:
     def test_unknown_entry_id_ignored(self):
-        """ID inconnu avec severity HIGH → pas de finding."""
+        """Unknown ID with severity HIGH → no finding."""
         findings = []
         _process_entry({"id": "some_unknown_check", "severity": "HIGH", "finding": "something"}, findings)
         assert len(findings) == 0
 
     def test_empty_entry(self):
-        """Entrée vide → pas de crash."""
+        """Empty entry → no crash."""
         findings = []
         _process_entry({}, findings)
         assert len(findings) == 0
 
     def test_missing_id(self):
-        """Entrée sans id → pas de crash."""
+        """Entry without id → no crash."""
         findings = []
         _process_entry({"severity": "HIGH", "finding": "test"}, findings)
         assert len(findings) == 0
 
     def test_multiple_entries_accumulate(self):
-        """Plusieurs entrées → findings cumulés."""
+        """Multiple entries → accumulated findings."""
         findings = []
         _process_entry({"id": "heartbleed", "severity": "CRITICAL", "finding": "VULNERABLE"}, findings)
         _process_entry({"id": "DROWN", "severity": "CRITICAL", "finding": "VULNERABLE"}, findings)
@@ -259,13 +259,13 @@ class TestProcessEntryEdgeCases:
 
 class TestRunTestssl:
     async def test_not_available_returns_empty(self):
-        """testssl.sh non disponible → liste vide."""
+        """testssl.sh unavailable → empty list."""
         with patch("app.scanners.testssl_runner.is_available", return_value=False):
             result = await run_testssl("example.com")
         assert result == []
 
     async def test_successful_run_parses_json(self):
-        """Run réussi → parse le JSON et retourne les findings."""
+        """Successful run → parse the JSON and return the findings."""
         json_data = [
             {"id": "heartbleed", "severity": "CRITICAL", "finding": "VULNERABLE"},
             {"id": "POODLE_SSL", "severity": "HIGH", "finding": "VULNERABLE"},
@@ -285,16 +285,16 @@ class TestRunTestssl:
                 return_value=MagicMock(read=MagicMock(return_value=json.dumps(json_data)))
             )
             mock_open.return_value.__exit__ = MagicMock(return_value=False)
-            # Patcher json.load pour retourner nos données
+            # Patch json.load to return our data
             with patch("json.load", return_value=json_data):
                 result = await run_testssl("example.com")
 
-        assert len(result) == 2  # heartbleed + POODLE (RC4 OK ignoré)
+        assert len(result) == 2  # heartbleed + POODLE (RC4 OK ignored)
         assert result[0].title == "Heartbleed (CVE-2014-0160)"
         assert result[1].title == "POODLE (SSLv3 CBC)"
 
     async def test_timeout_returns_empty(self):
-        """Timeout → liste vide, pas de crash."""
+        """Timeout → empty list, no crash."""
         import asyncio as aio
 
         mock_proc = AsyncMock()
@@ -310,7 +310,7 @@ class TestRunTestssl:
         assert result == []
 
     async def test_invalid_json_returns_empty(self):
-        """JSON invalide → liste vide."""
+        """Invalid JSON → empty list."""
         mock_proc = AsyncMock()
         mock_proc.wait = AsyncMock(return_value=0)
 
@@ -328,7 +328,7 @@ class TestRunTestssl:
         assert result == []
 
     async def test_json_file_not_found_returns_empty(self):
-        """Fichier JSON absent (testssl n'a pas écrit) → liste vide."""
+        """JSON file absent (testssl did not write it) → empty list."""
         mock_proc = AsyncMock()
         mock_proc.wait = AsyncMock(return_value=0)
 
@@ -343,7 +343,7 @@ class TestRunTestssl:
         assert result == []
 
     async def test_tempfile_cleanup_on_success(self):
-        """Le fichier temporaire est nettoyé après un run réussi."""
+        """The temporary file is cleaned up after a successful run."""
         mock_proc = AsyncMock()
         mock_proc.wait = AsyncMock(return_value=0)
 
@@ -361,7 +361,7 @@ class TestRunTestssl:
         mock_unlink.assert_called_once()
 
     async def test_tempfile_cleanup_on_error(self):
-        """Le fichier temporaire est nettoyé même en cas d'erreur."""
+        """The temporary file is cleaned up even on error."""
         mock_proc = AsyncMock()
         mock_proc.wait = AsyncMock(side_effect=Exception("crash"))
 
@@ -370,15 +370,15 @@ class TestRunTestssl:
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
             patch("os.unlink") as mock_unlink,
         ):
-            # L'exception non-prévue est capturée par le except générique?
-            # Non — seuls TimeoutError et JSONDecodeError/FileNotFoundError sont catchés
-            # Une Exception générique remontera... sauf si on la wrappe
+            # Is the unexpected exception caught by the generic except?
+            # No — only TimeoutError and JSONDecodeError/FileNotFoundError are caught
+            # A generic Exception will propagate... unless we wrap it
             try:
                 await run_testssl("example.com")
             except Exception:
                 pass
 
-        # unlink est dans le finally, donc toujours appelé
+        # unlink is in the finally block, so always called
         mock_unlink.assert_called_once()
 
 
@@ -389,7 +389,7 @@ class TestRunTestssl:
 
 class TestIsAvailable:
     def test_file_exists_and_executable(self):
-        """Fichier existant et exécutable → True."""
+        """File exists and is executable → True."""
         with (
             patch("os.path.isfile", return_value=True),
             patch("os.access", return_value=True),
@@ -397,12 +397,12 @@ class TestIsAvailable:
             assert is_available() is True
 
     def test_file_not_found(self):
-        """Fichier inexistant → False."""
+        """File does not exist → False."""
         with patch("os.path.isfile", return_value=False):
             assert is_available() is False
 
     def test_file_not_executable(self):
-        """Fichier existant mais non exécutable → False."""
+        """File exists but is not executable → False."""
         with (
             patch("os.path.isfile", return_value=True),
             patch("os.access", return_value=False),

@@ -39,5 +39,5 @@ class BaseScanner(ABC):
 
     @abstractmethod
     async def scan(self, domain: str) -> ScanResult:
-        """Exécute le scan passif pour le domaine donné."""
+        """Run the passive scan for the given domain."""
         ...

@@ -1,12 +1,12 @@
-"""Tests de régression pour les edge cases réels.
+"""Regression tests for real-world edge cases.
 
-Ces tests reproduisent des scénarios rencontrés en production :
-- Redirections infinies
-- Chaîne de certificats incomplète
-- Réponses crt.sh volumineuses
-- Timeouts DNS partiels
-- JSON malformé de HIBP
-- Domaines exotiques
+These tests reproduce scenarios encountered in production:
+- Infinite redirects
+- Incomplete certificate chain
+- Large crt.sh responses
+- Partial DNS timeouts
+- Malformed HIBP JSON
+- Exotic domains
 """
 
 import pytest
@@ -29,13 +29,13 @@ from tests.conftest import FakeDnsAnswer, FakeTxtRecord, FakeMxRecord, make_cert
 
 
 # ===================================================================
-# Redirections infinies (Headers scanner)
+# Infinite redirects (Headers scanner)
 # ===================================================================
 
 
 class TestInfiniteRedirect:
     async def test_redirect_loop_returns_error_finding(self):
-        """Un domaine qui redirige en boucle ne doit pas bloquer le scanner."""
+        """A domain that redirects in a loop must not block the scanner."""
         scanner = HeadersScanner()
         with respx.mock:
             respx.get("https://loop.example.com").mock(
@@ -46,14 +46,14 @@ class TestInfiniteRedirect:
             )
             result = await scanner.scan("loop.example.com")
 
-        # Le scanner capture l'exception et retourne un finding
+        # The scanner catches the exception and returns a finding
         assert result.score < 100
         assert len(result.findings) >= 1
         assert result.findings[0].severity == "high"
         assert "Impossible" in result.findings[0].title
 
     async def test_redirect_loop_does_not_hang(self):
-        """Vérifie que le timeout httpx protège contre les boucles lentes."""
+        """Verify that the httpx timeout protects against slow loops."""
         scanner = HeadersScanner()
         with respx.mock:
             respx.get("https://slow-loop.example.com").mock(
@@ -68,13 +68,13 @@ class TestInfiniteRedirect:
 
 
 # ===================================================================
-# Chaîne de certificats incomplète (TLS)
+# Incomplete certificate chain (TLS)
 # ===================================================================
 
 
 class TestIncompleteCertChain:
     async def test_ssl_verification_error_triggers_fallback(self):
-        """Un cert avec chaîne incomplète échoue en verify=True, réussit en verify=False."""
+        """A cert with an incomplete chain fails with verify=True, succeeds with verify=False."""
         import ssl
         import socket
 
@@ -109,12 +109,12 @@ class TestIncompleteCertChain:
         ):
             result = _fetch_cert_sync("chain.example.com")
 
-        # Le fallback verify=False a fonctionné
+        # The verify=False fallback worked
         assert result["verified"] is False
         assert result["subject_cn"] == "chain.example.com"
 
     async def test_incomplete_chain_produces_finding_via_scanner(self):
-        """Le scan complet avec un cert non vérifié produit le bon résultat."""
+        """The full scan with an unverified cert produces the right result."""
         scanner = TlsScanner()
         cert_info = make_cert_info(verified=False)
 
@@ -124,20 +124,20 @@ class TestIncompleteCertChain:
         ):
             result = await scanner.scan("chain.example.com")
 
-        # Le cert est valide côté données, donc score = 100 même si verified=False
-        # (le check de vérification n'est pas encore implémenté dans les checks de base)
+        # The cert is valid data-wise, so score = 100 even if verified=False
+        # (the verification check is not yet implemented in the base checks)
         assert isinstance(result, ScanResult)
         assert result.score >= 0
 
 
 # ===================================================================
-# crt.sh avec des milliers de résultats (Subdomains)
+# crt.sh with thousands of results (Subdomains)
 # ===================================================================
 
 
 class TestMassiveSubdomains:
     async def test_thousands_of_subdomains_capped_in_description(self):
-        """crt.sh renvoie 5000 sous-domaines — la description est tronquée à 20."""
+        """crt.sh returns 5000 subdomains — the description is truncated to 20."""
         scanner = SubdomainsScanner()
         huge_result = [
             {"name_value": f"sub{i}.example.com"}
@@ -148,22 +148,22 @@ class TestMassiveSubdomains:
             respx.get("https://crt.sh/").mock(
                 return_value=httpx.Response(200, json=huge_result)
             )
-            # Les checks de takeover vont aussi être appelés — mock httpx pour les 30 premiers
+            # The takeover checks will also be called — mock httpx for the first 30
             respx.get(url__regex=r"https://sub\d+\.example\.com").mock(
                 return_value=httpx.Response(200, text="OK")
             )
 
             result = await scanner.scan("example.com")
 
-        # Info finding avec le nombre total
+        # Info finding with the total count
         info = [f for f in result.findings if "5000" in f.title or "sous-domaine" in f.title]
         assert len(info) >= 1
-        # La description ne liste que 20 sous-domaines
+        # The description only lists 20 subdomains
         desc = info[0].description
         assert "et plus" in desc
 
     async def test_crt_sh_returns_duplicates_deduplicated(self):
-        """crt.sh renvoie le même sous-domaine plusieurs fois — dédupliqué."""
+        """crt.sh returns the same subdomain several times — deduplicated."""
         data = [
             {"name_value": "api.example.com"},
             {"name_value": "api.example.com"},
@@ -182,7 +182,7 @@ class TestMassiveSubdomains:
         assert "www.example.com" in subs
 
     async def test_crt_sh_multiline_name_values(self):
-        """crt.sh renvoie des name_value avec plusieurs lignes (wildcard + concrete)."""
+        """crt.sh returns name_value with multiple lines (wildcard + concrete)."""
         data = [
             {"name_value": "*.example.com\nwww.example.com\napi.example.com"},
         ]
@@ -198,7 +198,7 @@ class TestMassiveSubdomains:
         assert "example.com" in subs  # *.example.com stripped to example.com
 
     async def test_crt_sh_timeout_returns_empty(self):
-        """crt.sh timeout → retourne un set vide, pas d'exception."""
+        """crt.sh timeout → returns an empty set, no exception."""
         with respx.mock:
             respx.get("https://crt.sh/").mock(
                 side_effect=httpx.ReadTimeout(
@@ -212,7 +212,7 @@ class TestMassiveSubdomains:
         assert subs == set()
 
     async def test_crt_sh_invalid_json(self):
-        """crt.sh renvoie du HTML au lieu du JSON → pas de crash."""
+        """crt.sh returns HTML instead of JSON → no crash."""
         with respx.mock:
             respx.get("https://crt.sh/").mock(
                 return_value=httpx.Response(
@@ -228,13 +228,13 @@ class TestMassiveSubdomains:
 
 
 # ===================================================================
-# Timeout DNS partiel (un seul check timeout, les autres continuent)
+# Partial DNS timeout (a single check times out, the others continue)
 # ===================================================================
 
 
 class TestDnsPartialTimeout:
     async def test_spf_timeout_others_continue(self):
-        """Un timeout DNS sur SPF ne bloque pas DMARC, MX, etc."""
+        """A DNS timeout on SPF does not block DMARC, MX, etc."""
         scanner = DnsScanner()
         call_count = {"spf": 0, "other": 0}
 
@@ -266,20 +266,20 @@ class TestDnsPartialTimeout:
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
             result = await scanner.scan("example.com")
 
-        # Le scan complète malgré le timeout SPF
+        # The scan completes despite the SPF timeout
         assert isinstance(result, ScanResult)
         assert result.score >= 0
 
-        # SPF a échoué → finding d'erreur
+        # SPF failed → error finding
         spf_findings = [f for f in result.findings if "SPF" in f.title]
         assert len(spf_findings) >= 1
 
-        # DMARC n'a PAS échoué (pas de finding DMARC manquant)
+        # DMARC did NOT fail (no missing-DMARC finding)
         dmarc_missing = [f for f in result.findings if "DMARC manquant" in f.title]
         assert len(dmarc_missing) == 0
 
     async def test_all_dns_checks_timeout_still_returns_result(self):
-        """Tous les checks DNS timeout → le scan retourne quand même un ScanResult."""
+        """All DNS checks time out → the scan still returns a ScanResult."""
         scanner = DnsScanner()
 
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
@@ -293,18 +293,18 @@ class TestDnsPartialTimeout:
 
         assert isinstance(result, ScanResult)
         assert result.score >= 0
-        # Plusieurs findings d'erreur mais pas de crash
+        # Several error findings but no crash
         assert len(result.findings) > 0
 
 
 # ===================================================================
-# HIBP JSON malformé
+# Malformed HIBP JSON
 # ===================================================================
 
 
 class TestHIBPMalformedResponse:
     async def test_hibp_returns_invalid_json(self):
-        """HIBP renvoie du texte au lieu de JSON → finding info, pas de crash."""
+        """HIBP returns text instead of JSON → info finding, no crash."""
         scanner = LeaksScanner()
         with respx.mock:
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -317,14 +317,14 @@ class TestHIBPMalformedResponse:
 
             result = await scanner.scan("example.com")
 
-        # Le scanner capture l'exception JSON et retourne un finding info
+        # The scanner catches the JSON exception and returns an info finding
         assert isinstance(result, ScanResult)
         assert len(result.findings) >= 1
         error_findings = [f for f in result.findings if f.severity == "info"]
         assert len(error_findings) >= 1
 
     async def test_hibp_returns_truncated_json(self):
-        """HIBP renvoie du JSON tronqué → erreur de décodage capturée."""
+        """HIBP returns truncated JSON → decode error caught."""
         scanner = LeaksScanner()
         with respx.mock:
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -338,11 +338,11 @@ class TestHIBPMalformedResponse:
             result = await scanner.scan("example.com")
 
         assert isinstance(result, ScanResult)
-        # L'exception JSONDecodeError est capturée par le except Exception
+        # The JSONDecodeError exception is caught by the except Exception
         assert len(result.findings) >= 1
 
     async def test_hibp_returns_empty_json_object(self):
-        """HIBP renvoie {} → 0 breaches → score 100."""
+        """HIBP returns {} → 0 breaches → score 100."""
         scanner = LeaksScanner()
         with respx.mock:
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -354,7 +354,7 @@ class TestHIBPMalformedResponse:
         assert result.score == 100
 
     async def test_hibp_connection_reset(self):
-        """HIBP ferme la connexion brutalement → finding info."""
+        """HIBP closes the connection abruptly → info finding."""
         scanner = LeaksScanner()
         with respx.mock:
             respx.get(url__regex=r".*haveibeenpwned.*").mock(
@@ -371,13 +371,13 @@ class TestHIBPMalformedResponse:
 
 
 # ===================================================================
-# Domaines exotiques et edge cases DNS
+# Exotic domains and DNS edge cases
 # ===================================================================
 
 
 class TestExoticDomains:
     async def test_punycode_domain_dns(self):
-        """Un domaine internationalisé (punycode) passe correctement au resolver."""
+        """An internationalized domain (punycode) is passed correctly to the resolver."""
         scanner = DnsScanner()
 
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
@@ -388,12 +388,12 @@ class TestExoticDomains:
             result = await scanner.scan("xn--nxasmq6b.example.com")
 
         assert isinstance(result, ScanResult)
-        # Le domaine punycode est passé tel quel au resolver
+        # The punycode domain is passed as-is to the resolver
         calls = mock_resolver.resolve.call_args_list
         assert any("xn--nxasmq6b.example.com" in str(c) for c in calls)
 
     async def test_very_long_domain(self):
-        """Un domaine très long ne crash pas le scanner."""
+        """A very long domain does not crash the scanner."""
         scanner = DnsScanner()
         long_domain = "a" * 60 + "." + "b" * 60 + ".example.com"
 
@@ -414,7 +414,7 @@ class TestExoticDomains:
 
 class TestReputationEdgeCases:
     async def test_domain_resolves_to_ipv6_only(self):
-        """Un domaine IPv6-only ne crashe pas Spamhaus (IPv6 non supporté)."""
+        """An IPv6-only domain does not crash Spamhaus (IPv6 not supported)."""
         scanner = ReputationScanner()
 
         with (
@@ -424,10 +424,10 @@ class TestReputationEdgeCases:
             result = await scanner.scan("ipv6only.example.com")
 
         assert isinstance(result, ScanResult)
-        assert result.score == 100  # IPv6 skip → pas de finding
+        assert result.score == 100  # IPv6 skip → no finding
 
     async def test_domain_resolves_to_mixed_ipv4_ipv6(self):
-        """Un domaine avec IPv4 + IPv6 → seul IPv4 est vérifié via Spamhaus."""
+        """A domain with IPv4 + IPv6 → only IPv4 is checked via Spamhaus."""
         scanner = ReputationScanner()
         import socket
 
@@ -441,19 +441,19 @@ class TestReputationEdgeCases:
             result = await scanner.scan("mixed.example.com")
 
         assert isinstance(result, ScanResult)
-        # Pas de finding (IP non listée = gaierror = OK)
+        # No finding (IP not listed = gaierror = OK)
         reputation_findings = [f for f in result.findings if f.severity != "info"]
         assert len(reputation_findings) == 0
 
 
 # ===================================================================
-# Headers — cookies avec redirections complexes
+# Headers — cookies with complex redirects
 # ===================================================================
 
 
 class TestCookieRedirectEdgeCases:
     async def test_cookie_set_on_302_then_200(self):
-        """Un cookie posé sur la réponse 302 est aussi analysé."""
+        """A cookie set on the 302 response is also analyzed."""
         scanner = HeadersScanner()
 
         sec_headers = {
@@ -475,7 +475,7 @@ class TestCookieRedirectEdgeCases:
             respx.get(url__regex=r"https://redir\.example\.com/.*").mock(
                 return_value=httpx.Response(404)
             )
-            # HTTP probe : /login redirige et pose un cookie non sécurisé
+            # HTTP probe: /login redirects and sets an insecure cookie
             respx.get("http://redir.example.com/login").mock(
                 return_value=httpx.Response(
                     200,
@@ -492,17 +492,17 @@ class TestCookieRedirectEdgeCases:
             result = await scanner.scan("redir.example.com")
 
         cookie_findings = [f for f in result.findings if "sess" in f.title]
-        assert len(cookie_findings) >= 1  # Au moins Secure manquant
+        assert len(cookie_findings) >= 1  # At least Secure missing
 
 
 # ===================================================================
-# TLS — erreurs réseau variées
+# TLS — various network errors
 # ===================================================================
 
 
 class TestTlsNetworkErrors:
     async def test_dns_resolution_failure(self):
-        """Le domaine ne résout pas → finding critique TLS."""
+        """The domain does not resolve → critical TLS finding."""
         scanner = TlsScanner()
 
         with (
@@ -516,7 +516,7 @@ class TestTlsNetworkErrors:
         assert "impossible" in result.findings[0].title.lower()
 
     async def test_port_443_closed(self):
-        """Le port 443 est fermé → ConnectionRefusedError → finding critique."""
+        """Port 443 is closed → ConnectionRefusedError → critical finding."""
         scanner = TlsScanner()
 
         with (
@@ -530,7 +530,7 @@ class TestTlsNetworkErrors:
         assert "Connection refused" in result.findings[0].description
 
     async def test_ssl_handshake_timeout(self):
-        """Le handshake SSL timeout → finding critique."""
+        """The SSL handshake times out → critical finding."""
         scanner = TlsScanner()
         import socket
 

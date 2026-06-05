@@ -19,7 +19,7 @@ class TlsScanner(BaseScanner):
     weight = 0.20
 
     async def scan(self, domain: str) -> ScanResult:
-        # Lancer les checks Python et testssl.sh en parallèle
+        # Run the Python checks and testssl.sh in parallel
         basic_task = self._basic_checks(domain)
         testssl_task = run_testssl(domain)
 
@@ -60,7 +60,7 @@ async def _get_cert_info(domain: str) -> dict:
 
 
 def _fetch_cert_sync(domain: str) -> dict:
-    # Tenter avec vérification, puis sans (cert expiré/auto-signé)
+    # Try with verification, then without (expired/self-signed cert)
     for verify in (True, False):
         ctx = ssl.create_default_context()
         if not verify:
@@ -87,7 +87,7 @@ def _fetch_cert_sync(domain: str) -> dict:
 
 
 def _parse_cert_der(der_bytes: bytes) -> dict:
-    """Parse un certificat DER avec cryptography si dispo, sinon fallback ssl."""
+    """Parses a DER certificate with cryptography if available, otherwise falls back to ssl."""
     try:
         from cryptography import x509 as cx509
         from cryptography.hazmat.primitives.asymmetric import rsa, ec
@@ -138,7 +138,7 @@ def _parse_cert_der(der_bytes: bytes) -> dict:
             "is_wildcard": any(s.startswith("*.") for s in sans),
         }
     except ImportError:
-        # Fallback sans cryptography — on ne peut pas extraire key_size/sig_algo
+        # Fallback without cryptography — cannot extract key_size/sig_algo
         return {
             "not_after": datetime.now(timezone.utc),
             "issuer_cn": "",
@@ -209,7 +209,7 @@ def _check_self_signed(cert_info: dict, domain: str, findings: list) -> None:
         ))
 
 
-# --- Phase 1 : nouveaux checks ---
+# --- Phase 1: new checks ---
 
 
 def _check_key_size(cert_info: dict, findings: list) -> None:
@@ -260,7 +260,7 @@ def _check_wildcard_cert(cert_info: dict, findings: list) -> None:
     wildcards = [s for s in sans if s.startswith("*.")]
     if not wildcards:
         return
-    # Wildcard sur un TLD ou domaine de second niveau = trop large
+    # Wildcard on a TLD or second-level domain = too broad
     for w in wildcards:
         parts = w[2:].split(".")
         if len(parts) <= 1:
@@ -290,7 +290,7 @@ def _check_san_coverage(cert_info: dict, domain: str, findings: list) -> None:
             remediation="Régénérer le certificat en incluant les SANs appropriés.",
         ))
         return
-    # Vérifier que le domaine scanné est couvert par les SANs
+    # Check that the scanned domain is covered by the SANs
     covered = any(
         s == domain or (s.startswith("*.") and domain.endswith(s[1:]))
         for s in sans

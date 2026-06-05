@@ -1,4 +1,4 @@
-"""Wrapper async pour testssl.sh — exécute les checks vulnérabilités + server-defaults."""
+"""Async wrapper for testssl.sh — runs the vulnerability + server-defaults checks."""
 
 import asyncio
 import json
@@ -8,9 +8,9 @@ import tempfile
 from app.scanners.base import FindingData
 
 TESTSSL_PATH = os.environ.get("TESTSSL_PATH", "/opt/testssl/testssl.sh")
-TIMEOUT = 120  # secondes max pour un run complet
+TIMEOUT = 120  # max seconds for a full run
 
-# ---------- Mapping severity testssl → notre modèle ----------
+# ---------- Severity mapping testssl → our model ----------
 
 _SEVERITY_MAP = {
     "CRITICAL": "critical",
@@ -20,7 +20,7 @@ _SEVERITY_MAP = {
     "WARN": "medium",
 }
 
-# ---------- Vulnérabilités TLS connues ----------
+# ---------- Known TLS vulnerabilities ----------
 
 _VULN_CHECKS: dict[str, dict] = {
     "heartbleed": {
@@ -100,7 +100,7 @@ _VULN_CHECKS: dict[str, dict] = {
     },
 }
 
-# ---------- Checks serveur (cert chain, OCSP, CT) ----------
+# ---------- Server checks (cert chain, OCSP, CT) ----------
 
 _CERT_CHECKS: dict[str, dict] = {
     "cert_chain_of_trust": {
@@ -115,7 +115,7 @@ _CERT_CHECKS: dict[str, dict] = {
     },
 }
 
-# Checks spéciaux : on flag même si severity = INFO/OK, selon le contenu
+# Special checks: we flag even if severity = INFO/OK, based on the content
 _SPECIAL_CHECKS = {
     "OCSP_stapling": {
         "flag_if": "not offered",
@@ -134,16 +134,16 @@ _SPECIAL_CHECKS = {
 }
 
 
-# ---------- API publique ----------
+# ---------- Public API ----------
 
 
 def is_available() -> bool:
-    """Vérifie si testssl.sh est installé."""
+    """Checks whether testssl.sh is installed."""
     return os.path.isfile(TESTSSL_PATH) and os.access(TESTSSL_PATH, os.X_OK)
 
 
 async def run_testssl(domain: str) -> list[FindingData]:
-    """Exécute testssl.sh et retourne les findings. Liste vide si non disponible."""
+    """Runs testssl.sh and returns the findings. Empty list if unavailable."""
     if not is_available():
         return []
 
@@ -196,7 +196,7 @@ def _process_entry(entry: dict, findings: list[FindingData]) -> None:
     severity_str = entry.get("severity", "OK")
     finding_text = entry.get("finding", "")
 
-    # Checks spéciaux (OCSP, CT) : on flag selon le contenu, pas la severity
+    # Special checks (OCSP, CT): we flag based on the content, not the severity
     if entry_id in _SPECIAL_CHECKS:
         spec = _SPECIAL_CHECKS[entry_id]
         if spec["flag_if"] in finding_text.lower():
@@ -208,12 +208,12 @@ def _process_entry(entry: dict, findings: list[FindingData]) -> None:
             ))
         return
 
-    # Severity OK → rien à signaler
+    # Severity OK → nothing to report
     our_severity = _SEVERITY_MAP.get(severity_str)
     if our_severity is None:
         return
 
-    # Vulnérabilités
+    # Vulnerabilities
     if entry_id in _VULN_CHECKS:
         info = _VULN_CHECKS[entry_id]
         findings.append(FindingData(

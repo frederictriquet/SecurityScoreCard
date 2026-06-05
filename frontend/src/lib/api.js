@@ -1,14 +1,23 @@
 const BASE = '/api';
 
-export async function createScan(domain) {
+export async function createScan(domain, confirm = false) {
   const res = await fetch(`${BASE}/scans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ domain })
+    body: JSON.stringify({ domain, confirm })
   });
+  // 409: unconfirmed homograph domain. This is not an error but a request for
+  // explicit confirmation; we return the structured detail so the caller can
+  // display the warning and offer to scan anyway.
+  if (res.status === 409) {
+    const err = await res.json().catch(() => ({}));
+    if (err.detail && err.detail.needs_confirmation) {
+      return { needsConfirmation: true, ...err.detail };
+    }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    // Pydantic renvoie detail comme tableau [{msg, ...}] sur les 422
+    // Pydantic returns detail as an array [{msg, ...}] on 422 responses
     const detail = Array.isArray(err.detail)
       ? err.detail.map(e => e.msg).join(', ')
       : err.detail;

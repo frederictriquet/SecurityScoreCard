@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.orchestrator — score_to_grade, run_scan, run_single_scanner."""
+"""Tests for app.scanners.orchestrator — score_to_grade, run_scan, run_single_scanner."""
 
 import pytest
 from unittest.mock import patch, AsyncMock
@@ -19,7 +19,7 @@ from app.scanners.orchestrator import (
 
 
 # ===================================================================
-# DB fixture — tables créées/détruites pour chaque test
+# DB fixture — tables created/destroyed for each test
 # ===================================================================
 
 
@@ -33,12 +33,12 @@ async def setup_db():
 
 
 # ===================================================================
-# Helpers — scanners factices
+# Helpers — fake scanners
 # ===================================================================
 
 
 class FakeScanner(BaseScanner):
-    """Scanner factice qui retourne un résultat prédéfini."""
+    """Fake scanner that returns a predefined result."""
 
     def __init__(self, name: str, weight: float, score: int, findings: list[FindingData] | None = None):
         self.name = name
@@ -51,7 +51,7 @@ class FakeScanner(BaseScanner):
 
 
 class FailingScanner(BaseScanner):
-    """Scanner factice qui lève une exception."""
+    """Fake scanner that raises an exception."""
 
     def __init__(self, name: str, weight: float, error_msg: str = "Scanner crashed"):
         self.name = name
@@ -63,7 +63,7 @@ class FailingScanner(BaseScanner):
 
 
 async def _create_scan_in_db(domain: str = "example.com") -> str:
-    """Insère un Scan pending en DB et retourne son id."""
+    """Insert a pending Scan into the DB and return its id."""
     async with AsyncSessionLocal() as session:
         scan = Scan(domain=domain)
         session.add(scan)
@@ -72,7 +72,7 @@ async def _create_scan_in_db(domain: str = "example.com") -> str:
 
 
 async def _get_scan_full(scan_id: str) -> Scan:
-    """Relit un Scan avec ses modules et findings."""
+    """Re-read a Scan with its modules and findings."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Scan)
@@ -180,7 +180,7 @@ class TestScannersConfig:
 
 
 # ===================================================================
-# run_single_scanner — scanner qui réussit
+# run_single_scanner — scanner that succeeds
 # ===================================================================
 
 
@@ -190,7 +190,7 @@ class TestRunSingleScannerSuccess:
         scan_id = await _create_scan_in_db()
         scanner = FakeScanner("test_scanner", 0.5, score=85)
 
-        # Créer le module en DB (comme run_scan le ferait)
+        # Create the module in the DB (as run_scan would)
         async with AsyncSessionLocal() as session:
             session.add(ScanModule(
                 scan_id=scan_id, name="test_scanner", weight=0.5, status="pending",
@@ -253,7 +253,7 @@ class TestRunSingleScannerSuccess:
         db_findings = modules[0].findings
         assert len(db_findings) == 2
 
-        # Vérifier que chaque champ est correctement persisté
+        # Verify that each field is correctly persisted
         finding_a = next(f for f in db_findings if f.title == "Problème A")
         assert finding_a.severity == "high"
         assert finding_a.description == "Description A"
@@ -284,7 +284,7 @@ class TestRunSingleScannerSuccess:
 
 
 # ===================================================================
-# run_single_scanner — scanner qui échoue
+# run_single_scanner — scanner that fails
 # ===================================================================
 
 
@@ -343,13 +343,13 @@ class TestRunSingleScannerFailure:
 
 
 # ===================================================================
-# run_scan — flux complet
+# run_scan — full flow
 # ===================================================================
 
 
 class TestRunScan:
     async def test_creates_modules_for_each_scanner(self):
-        """run_scan crée un ScanModule par scanner dans SCANNERS."""
+        """run_scan creates one ScanModule per scanner in SCANNERS."""
         scan_id = await _create_scan_in_db()
 
         fake_scanners = [
@@ -364,7 +364,7 @@ class TestRunScan:
         assert names == {"alpha", "beta"}
 
     async def test_scan_status_transitions(self):
-        """Scan passe de pending → running → completed."""
+        """Scan transitions from pending → running → completed."""
         scan_id = await _create_scan_in_db()
 
         fake_scanners = [FakeScanner("s1", 1.0, score=100)]
@@ -378,7 +378,7 @@ class TestRunScan:
         assert scan.completed_at >= scan.started_at
 
     async def test_global_score_weighted_average(self):
-        """Le score global est la moyenne pondérée des modules."""
+        """The global score is the weighted average of the modules."""
         scan_id = await _create_scan_in_db()
 
         # alpha: score=100, weight=0.6 → 60
@@ -396,7 +396,7 @@ class TestRunScan:
         assert scan.grade == "B"
 
     async def test_global_score_rounds_correctly(self):
-        """Vérifie l'arrondi du score global."""
+        """Verify rounding of the global score."""
         scan_id = await _create_scan_in_db()
 
         # score = round((90*0.3 + 85*0.7) / 1.0) = round(27 + 59.5) = round(86.5) = 86
@@ -408,7 +408,7 @@ class TestRunScan:
             await run_scan(scan_id, "example.com")
 
         scan = await _get_scan_full(scan_id)
-        expected = round(90 * 0.3 + 85 * 0.7)  # 86 ou 87
+        expected = round(90 * 0.3 + 85 * 0.7)  # 86 or 87
         assert scan.score == expected
 
     async def test_grade_A_for_high_score(self):
@@ -447,7 +447,7 @@ class TestRunScan:
         assert weights["b"] == pytest.approx(0.7)
 
     async def test_parallel_execution(self):
-        """Tous les scanners sont lancés en parallèle via asyncio.gather."""
+        """All scanners are launched in parallel via asyncio.gather."""
         scan_id = await _create_scan_in_db()
         import asyncio
 
@@ -473,15 +473,15 @@ class TestRunScan:
         with patch("app.scanners.orchestrator.SCANNERS", fake_scanners):
             await run_scan(scan_id, "example.com")
 
-        # Les deux scanners démarrent avant que le lent ne finisse
+        # Both scanners start before the slow one finishes
         assert "fast_start" in call_order
         assert "slow_start" in call_order
-        # fast finit avant slow
+        # fast finishes before slow
         assert call_order.index("fast_end") < call_order.index("slow_end")
 
 
 # ===================================================================
-# run_scan — un scanner échoue, les autres réussissent
+# run_scan — one scanner fails, the others succeed
 # ===================================================================
 
 
@@ -497,7 +497,7 @@ class TestRunScanPartialFailure:
             await run_scan(scan_id, "example.com")
 
         scan = await _get_scan_full(scan_id)
-        # Le scan global doit être completed (pas failed)
+        # The global scan must be completed (not failed)
         assert scan.status == "completed"
 
         modules = await _get_modules(scan_id)
@@ -511,7 +511,7 @@ class TestRunScanPartialFailure:
         assert bad_mod.score == 0
 
     async def test_weighted_average_includes_failed_module(self):
-        """Un module failed a score=0, il participe à la moyenne pondérée."""
+        """A failed module has score=0 and still participates in the weighted average."""
         scan_id = await _create_scan_in_db()
 
         fake_scanners = [
@@ -523,7 +523,7 @@ class TestRunScanPartialFailure:
 
         scan = await _get_scan_full(scan_id)
         # good: 100 * 0.5 = 50, bad: 0 * 0.5 = 0
-        # total_weight = 1.0 (les deux ont score != None)
+        # total_weight = 1.0 (both have score != None)
         # global = round(50 / 1.0) = 50
         assert scan.score == 50
 
@@ -544,13 +544,13 @@ class TestRunScanPartialFailure:
 
 
 # ===================================================================
-# run_scan — tous les scanners échouent
+# run_scan — all scanners fail
 # ===================================================================
 
 
 class TestRunScanAllFailed:
     async def test_all_scanners_fail_score_zero(self):
-        """Si tous les modules échouent, total_weight > 0 (score=0 est not None) → score=0."""
+        """If all modules fail, total_weight > 0 (score=0 is not None) → score=0."""
         scan_id = await _create_scan_in_db()
 
         fake_scanners = [
@@ -583,7 +583,7 @@ class TestRunScanAllFailed:
 
 
 # ===================================================================
-# run_scan — score pondéré avec poids inégaux
+# run_scan — weighted score with unequal weights
 # ===================================================================
 
 
@@ -665,7 +665,7 @@ class TestRunScanWeightedScoring:
 
 
 # ===================================================================
-# run_scan — findings multiples persistés bout en bout
+# run_scan — multiple findings persisted end to end
 # ===================================================================
 
 
@@ -698,7 +698,7 @@ class TestRunScanFindingsPersistence:
         assert len(dns_mod.findings) == 2
         assert len(tls_mod.findings) == 1
 
-        # Vérifie la persistance complète du finding TLS
+        # Verify full persistence of the TLS finding
         cert_finding = tls_mod.findings[0]
         assert cert_finding.severity == "critical"
         assert cert_finding.title == "Cert expiré"
@@ -718,10 +718,10 @@ class TestRunScanFindingsPersistence:
             await run_scan(scan_id, "example.com")
 
         scan = await _get_scan_full(scan_id)
-        assert scan.score == 100  # Le score du scanner reste 100
+        assert scan.score == 100  # The scanner score stays 100
 
     async def test_domain_passed_to_scanner(self):
-        """Vérifie que le domaine est bien transmis au scanner."""
+        """Verify that the domain is properly passed to the scanner."""
         scan_id = await _create_scan_in_db("custom-domain.org")
         received_domain = None
 

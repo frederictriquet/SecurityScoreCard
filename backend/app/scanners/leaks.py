@@ -20,7 +20,7 @@ class LeaksScanner(BaseScanner):
                 )
 
                 if resp.status_code == 404:
-                    # Aucune breach connue
+                    # No known breach
                     return ScanResult(score=100, findings=[])
 
                 if resp.status_code == 400:
@@ -54,7 +54,7 @@ class LeaksScanner(BaseScanner):
                 else:
                     sev = "low"
 
-                # Détail des breaches les plus récentes (max 5)
+                # Details of the most recent breaches (max 5)
                 breach_names = list(data.keys())[:5]
                 findings.append(FindingData(
                     severity=sev,

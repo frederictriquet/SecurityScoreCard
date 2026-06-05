@@ -32,7 +32,7 @@
         clearInterval(interval);
         interval = null;
       }
-      // sinon on réessaie silencieusement au prochain tick
+      // otherwise we retry silently on the next tick
     }
   }
 
@@ -76,7 +76,7 @@
 
   const MODULE_ORDER = ['dns', 'tls', 'headers', 'reputation', 'subdomains', 'leaks', 'ports'];
 
-  // Priorité d'affichage : running > pending > completed/failed
+  // Display priority: running > pending > completed/failed
   const STATUS_PRIORITY = { running: 0, pending: 1, completed: 2, failed: 2 };
 
   $: orderedModules = scan?.modules

@@ -32,8 +32,8 @@ const GRADE_COLORS = {
 };
 
 /**
- * Génère et télécharge un rapport PDF pour un scan donné.
- * @param {object} scan - Objet scan complet (domain, score, grade, modules, findings…)
+ * Generates and downloads a PDF report for a given scan.
+ * @param {object} scan - Full scan object (domain, score, grade, modules, findings…)
  */
 export function downloadPdf(scan) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -41,7 +41,7 @@ export function downloadPdf(scan) {
   const margin = 14;
   let y = 20;
 
-  // --- Titre ---
+  // --- Title ---
   doc.setFontSize(22);
   doc.setFont('helvetica', 'bold');
   doc.text('Security Audit Report', margin, y);
@@ -59,7 +59,7 @@ export function downloadPdf(scan) {
   }
   y += 10;
 
-  // --- Score global ---
+  // --- Overall score ---
   const gradeColor = GRADE_COLORS[scan.grade] ?? [100, 100, 100];
   doc.setFontSize(40);
   doc.setFont('helvetica', 'bold');
@@ -75,12 +75,12 @@ export function downloadPdf(scan) {
   doc.text('Overall Score', margin + 25, y + 8);
   y += 18;
 
-  // --- Ligne de séparation ---
+  // --- Separator line ---
   doc.setDrawColor(200);
   doc.line(margin, y, pageWidth - margin, y);
   y += 8;
 
-  // --- Résumé par module ---
+  // --- Per-module summary ---
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(40);
@@ -129,14 +129,14 @@ export function downloadPdf(scan) {
 
   y = doc.lastAutoTable.finalY + 12;
 
-  // --- Détail des findings par module ---
+  // --- Detailed findings per module ---
   for (const mod of modules) {
     const findings = [...(mod.findings ?? [])].sort(
       (a, b) => (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5)
     );
     if (findings.length === 0) continue;
 
-    // Vérifier l'espace restant
+    // Check the remaining space
     if (y > 260) {
       doc.addPage();
       y = 20;

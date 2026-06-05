@@ -1,4 +1,4 @@
-"""Tests pour app.scanners.leaks — LeaksScanner, HIBP API."""
+"""Tests for app.scanners.leaks — LeaksScanner, HIBP API."""
 
 import pytest
 from unittest.mock import patch, AsyncMock
@@ -190,7 +190,7 @@ class TestLeaksScan:
 
             result = await scanner.scan("example.com")
         desc = result.findings[0].description
-        # Au moins quelques noms de breach doivent apparaître
+        # At least some breach names must appear
         assert any(name in desc for name in ["Adobe", "LinkedIn", "Dropbox"])
 
     async def test_more_than_5_breaches_shows_et_dautres(self, scanner):

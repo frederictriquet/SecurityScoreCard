@@ -4,7 +4,7 @@ from app.scanners.base import BaseScanner, ScanResult, FindingData
 
 CRT_SH_URL = "https://crt.sh/"
 
-# Services courants vers lesquels un CNAME abandonné peut pointer
+# Common services that an abandoned CNAME may point to
 TAKEOVER_SIGNATURES = [
     "github.io",
     "herokuapp.com",
@@ -72,12 +72,12 @@ async def _fetch_subdomains(domain: str) -> set[str]:
 
 async def _check_takeover(subdomains: set[str], findings: list) -> None:
     async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
-        for sub in list(subdomains)[:30]:  # limiter les requêtes
+        for sub in list(subdomains)[:30]:  # limit the number of requests
             try:
                 resp = await client.get(f"https://{sub}")
                 if resp.status_code != 404:
                     continue
-                # Détection heuristique : URL finale pointe vers un service tiers connu
+                # Heuristic detection: final URL points to a known third-party service
                 url_str = str(resp.url)
                 matched = next(
                     (sig for sig in TAKEOVER_SIGNATURES if sig in url_str),

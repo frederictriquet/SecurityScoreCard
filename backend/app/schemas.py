@@ -1,36 +1,110 @@
+from dataclasses import dataclass
 from datetime import datetime
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, model_validator
 import re
+
+from app.homograph import build_homograph_explanation
+
+
+def _reject_domain(original: str) -> "ValueError":
+    """Builds the rejection error for a domain.
+
+    If the input exhibits a homograph signature (non-Latin character imitating an
+    ASCII letter, script mix), we return a detailed explanation of the danger
+    rather than a terse "Domaine invalide": this is precisely the case of a
+    spoofed domain that the user might paste without understanding why it is
+    refused. Otherwise, a generic message.
+    """
+    return ValueError(build_homograph_explanation(original) or "Domaine invalide")
+
+
+# The last label also accepts an internationalized TLD (ccTLD/gTLD IDN) which,
+# after idna conversion, becomes a Punycode label "xn--…" containing digits and
+# hyphens (e.g. ".рф" → "xn--p1ai").
+_DOMAIN_PATTERN = re.compile(
+    r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9\-]+)$"
+)
+
+
+@dataclass
+class DomainInspection:
+    """Result of the normalization/validation of a submitted domain.
+
+    - `visible`: visible Unicode form entered (lowercased, scheme and slash
+      removed) — the one the user thinks they typed;
+    - `punycode`: ASCII/Punycode form actually scanned;
+    - `homograph_explanation`: detailed explanation of the danger if the visible
+      form exhibits a homograph signature, otherwise None.
+    """
+
+    visible: str
+    punycode: str
+    homograph_explanation: str | None
+
+
+def inspect_domain(raw: str) -> DomainInspection:
+    """Normalizes, validates and inspects a submitted domain.
+
+    Raises `ValueError` (→ 422) if the domain is invalid, explaining the danger
+    when it is a non-convertible homograph. For a valid but homograph domain
+    (e.g. "pаypal.com" with a Cyrillic "а"), validation succeeds and
+    `homograph_explanation` is populated: the caller can then request explicit
+    confirmation before scanning.
+    """
+    v = raw.strip().lower().removeprefix("https://").removeprefix("http://")
+    v = v.removesuffix("/")  # tolerate a trailing slash but reject a real path
+    visible = v  # submitted visible form, kept to explain the danger
+    # Convert internationalized domains (Unicode) to Punycode (xn--).
+    # Essential so that the victim can paste a homograph domain as-is
+    # ("pаypal.com" with a Cyrillic "а"): without this conversion, the ASCII
+    # regex below would reject it before the homograph scanner could analyze
+    # it. Pure ASCII domains are returned unchanged by the idna codec.
+    # NB: this codec implements IDNA2003 (silent mapping not conformant to
+    # modern browsers / UTS#46, e.g. "straße.de" → "strasse.de");
+    # cf. the limitation documented in DnsScanner._check_idn_homograph.
+    try:
+        puny = v.encode("idna").decode("ascii")
+    except (UnicodeError, ValueError):
+        raise _reject_domain(visible)
+    if not _DOMAIN_PATTERN.match(puny):
+        raise _reject_domain(visible)
+    # Valid domain: it remains to determine whether it exhibits a homograph
+    # signature (the case of a Punycode-convertible homograph, which passes
+    # validation but deserves explicit confirmation before launching the scan).
+    return DomainInspection(
+        visible=visible,
+        punycode=puny,
+        homograph_explanation=build_homograph_explanation(visible),
+    )
 
 
 class ScanCreate(BaseModel):
     domain: str
+    # Explicit user confirmation to scan a homograph domain. Without it, the
+    # router refuses to launch the scan of a deceptive domain.
+    confirm: bool = False
+    # Derived fields, computed at validation (cf. inspect_domain): the visible
+    # form entered and the explanation of the danger if a homograph signature is
+    # detected. Exposed so the router can build the "confirmation required"
+    # response.
+    visible_domain: str = ""
+    homograph_explanation: str | None = None
 
-    @field_validator("domain")
+    @model_validator(mode="before")
     @classmethod
-    def validate_domain(cls, v: str) -> str:
-        v = v.strip().lower().removeprefix("https://").removeprefix("http://")
-        v = v.removesuffix("/")  # tolère un slash final mais rejette un vrai chemin
-        # Convertit les domaines internationalisés (Unicode) en Punycode (xn--).
-        # Indispensable pour que la victime puisse coller un domaine homographe
-        # tel quel (« pаypal.com » avec un « а » cyrillique) : sans cette
-        # conversion, la regex ASCII ci-dessous le rejetterait avant que le
-        # scanner homographe ne puisse l'analyser. Les domaines ASCII purs sont
-        # renvoyés inchangés par le codec idna.
-        # NB : ce codec implémente IDNA2003 (mapping silencieux non conforme aux
-        # navigateurs modernes / UTS#46, ex. « straße.de » → « strasse.de ») ;
-        # cf. la limite documentée dans DnsScanner._check_idn_homograph.
-        try:
-            v = v.encode("idna").decode("ascii")
-        except (UnicodeError, ValueError):
-            raise ValueError("Domaine invalide")
-        # Le dernier label accepte aussi un TLD internationalisé (ccTLD/gTLD IDN)
-        # qui, après conversion idna, devient un label Punycode « xn--… »
-        # contenant chiffres et tirets (ex. « .рф » → « xn--p1ai »).
-        pattern = r"^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+([a-z]{2,}|xn--[a-z0-9\-]+)$"
-        if not re.match(pattern, v):
-            raise ValueError("Domaine invalide")
-        return v
+    def _validate_domain(cls, data):
+        # `data` is the request dict; we only transform if "domain" is indeed a
+        # string (otherwise we let Pydantic report the missing or wrongly typed
+        # field).
+        if isinstance(data, dict) and isinstance(data.get("domain"), str):
+            insp = inspect_domain(data["domain"])
+            data = {
+                **data,
+                "domain": insp.punycode,
+                "visible_domain": insp.visible,
+                "homograph_explanation": insp.homograph_explanation,
+            }
+        return data
 
 
 class FindingOut(BaseModel):

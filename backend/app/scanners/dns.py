@@ -2,93 +2,19 @@ import asyncio
 import json
 import random
 import string
-import unicodedata
 
 import dns.resolver
 import dns.asyncresolver
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
-
-
-# Préfixes de noms Unicode qui qualifient un caractère sans désigner son
-# système d'écriture (ex. « MODIFIER LETTER SMALL H », « FULLWIDTH LATIN … »).
-# On les saute pour atteindre le vrai nom de script et éviter de fabriquer de
-# faux « scripts » (MODIFIER, FULLWIDTH…) qui déclencheraient à tort une alerte
-# « scripts mélangés ». Heuristique : voir _alpha_scripts.
-_SCRIPT_NAME_QUALIFIERS = {
-    "MODIFIER", "COMBINING", "FULLWIDTH", "HALFWIDTH", "MATHEMATICAL",
-    "CIRCLED", "PARENTHESIZED", "SUPERSCRIPT", "SUBSCRIPT", "SMALL",
-}
-
-
-# Caractères non latins dont l'apparence imite une lettre ASCII latine.
-# Sert à détecter les attaques homographes (IDN spoofing).
-# NOTE : liste blanche volontairement partielle (cyrillique/grec, les scripts
-# les plus courants pour ce type d'attaque). D'autres familles d'homoglyphes
-# (arménien, latin pleine-chasse, alphanumériques mathématiques…) ne sont pas
-# énumérées et ne déclencheront donc PAS la branche « confusable » (medium) :
-# elles retombent en « info ». Le cas critique du mélange de scripts reste
-# couvert indépendamment de cette liste (branche « scripts mélangés », high).
-_CONFUSABLE_CHARS = {
-    # Cyrillique minuscule
-    "а", "е", "о", "р", "с", "у", "х", "ѕ", "і", "ј", "һ", "ԁ", "ӏ", "ԛ", "ԝ",
-    # Cyrillique majuscule
-    "А", "В", "Е", "К", "М", "Н", "О", "Р", "С", "Т", "У", "Х", "Ѕ", "І", "Ј",
-    # Grec minuscule
-    "ο", "α", "ν", "ρ", "ι", "κ", "υ",
-    # Grec majuscule
-    "Α", "Β", "Ε", "Ζ", "Η", "Ι", "Κ", "Μ", "Ν", "Ο", "Ρ", "Τ", "Υ", "Χ",
-}
-
-
-# Combinaisons de scripts pouvant légitimement coexister dans un même label
-# (UTS#39, profil « Highly Restrictive »). Le japonais mélange normalement Han
-# (CJK) + Hiragana + Katakana, plus la marque d'allongement « ー » dont le nom
-# Unicode commence par KATAKANA-HIRAGANA ; le coréen mélange Han + Hangul. Ces
-# domaines sont parfaitement valides et ne doivent PAS être signalés comme
-# homographes. NB : les scripts sont ici les préfixes de noms Unicode renvoyés
-# par `_alpha_scripts` (heuristique), pas la propriété Unicode « Script ».
-_LEGIT_MULTISCRIPT_SETS = [
-    {"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"},  # japonais
-    {"CJK", "HANGUL"},                                      # coréen
-]
-
-
-def _is_legit_multiscript(scripts: set[str]) -> bool:
-    """Vrai si le mélange de scripts correspond à une combinaison légitime.
-
-    UTS#39 autorise explicitement Han+Kana (japonais) et Han+Hangul (coréen) :
-    un label dont l'ensemble des scripts est un sous-ensemble de l'une de ces
-    combinaisons n'est pas une attaque homographe mais un IDN normal.
-    """
-    return any(scripts <= allowed for allowed in _LEGIT_MULTISCRIPT_SETS)
-
-
-def _alpha_scripts(text: str) -> set[str]:
-    """Retourne l'ensemble des systèmes d'écriture des caractères alphabétiques.
-
-    Heuristique (et non la propriété Unicode « Script ») : on déduit le script
-    du premier mot du nom Unicode du caractère (« LATIN SMALL LETTER A » →
-    LATIN). Les préfixes qualificatifs sans valeur de script (MODIFIER,
-    FULLWIDTH…) sont sautés pour éviter des faux positifs « scripts mélangés ».
-    Suffisant pour distinguer latin/cyrillique/grec/CJK dans un nom de domaine,
-    mais à ne pas confondre avec une vraie détection de script.
-    """
-    scripts: set[str] = set()
-    for ch in text:
-        if not ch.isalpha():
-            continue
-        try:
-            name = unicodedata.name(ch)
-        except ValueError:
-            continue
-        # Saute les préfixes qualificatifs pour atteindre le vrai nom de script.
-        words = name.split(" ")
-        idx = 0
-        while idx < len(words) - 1 and words[idx] in _SCRIPT_NAME_QUALIFIERS:
-            idx += 1
-        scripts.add(words[idx])
-    return scripts
+# Homograph analysis primitives shared with the validator (`schemas`).
+# Centralized in `app.homograph` to avoid any divergence of the confusable
+# character list between classification (here) and explanation (rejection).
+from app.homograph import (
+    CONFUSABLE_CHARS,
+    alpha_scripts,
+    is_legit_multiscript,
+)
 
 
 class DnsScanner(BaseScanner):
@@ -225,7 +151,7 @@ class DnsScanner(BaseScanner):
                 description="Le domaine ne semble pas recevoir d'emails (absence de MX).",
             ))
 
-    # --- Phase 1 : nouveaux checks ---
+    # --- Phase 1: new checks ---
 
     async def _check_caa(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
@@ -259,12 +185,12 @@ class DnsScanner(BaseScanner):
             mx_answers = await resolver.resolve(domain, "MX")
             mx_hosts = [str(r.exchange).rstrip(".") for r in mx_answers]
         except Exception:
-            return  # Pas de MX, pas de DANE à vérifier
+            return  # No MX, no DANE to check
 
         for mx_host in mx_hosts[:3]:
             try:
                 await resolver.resolve(f"_25._tcp.{mx_host}", "TLSA")
-                return  # TLSA trouvé, OK
+                return  # TLSA found, OK
             except Exception:
                 continue
 
@@ -303,7 +229,7 @@ class DnsScanner(BaseScanner):
         except Exception:
             pass
 
-    # --- Phase 3 : checks DNS supplémentaires ---
+    # --- Phase 3: additional DNS checks ---
 
     async def _check_tls_rpt(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
@@ -387,7 +313,7 @@ class DnsScanner(BaseScanner):
             ))
             return
 
-        # Vérifier si les NS sont sur des réseaux /24 distincts
+        # Check whether the NS are on distinct /24 networks
         ns_ips: list[str] = []
         for ns in ns_hosts[:4]:
             try:
@@ -408,34 +334,34 @@ class DnsScanner(BaseScanner):
 
 
     async def _check_idn_homograph(self, domain: str, findings: list) -> None:
-        """Détection passive d'un domaine homographe (IDN spoofing).
+        """Passive detection of a homograph domain (IDN spoofing).
 
-        Analyse purement locale du nom de domaine : aucune requête réseau (d'où
-        l'absence de paramètre `resolver`, contrairement aux autres checks DNS).
-        Le validateur (`schemas.validate_domain`) convertit l'input en Punycode
-        via `.encode("idna")`, donc les domaines internationalisés — y compris
-        ceux qu'une victime colle sous leur forme Unicode visible — arrivent ici
-        encodés en labels `xn--`, prêts à être décodés et analysés.
+        Purely local analysis of the domain name: no network request (hence the
+        absence of a `resolver` parameter, unlike the other DNS checks). The
+        validator (`schemas.validate_domain`) converts the input to Punycode via
+        `.encode("idna")`, so internationalized domains — including those a victim
+        pastes in their visible Unicode form — arrive here encoded as `xn--`
+        labels, ready to be decoded and analyzed.
 
-        Limites connues :
+        Known limitations:
 
-        - La détection « confusables » repose sur `_CONFUSABLE_CHARS`, une liste
-          blanche partielle (cyrillique/grec). Des familles entières d'homoglyphes
-          (arménien, fullwidth, alphanumériques mathématiques…) n'y figurent pas
-          et retombent en « info ». Le cas le plus dangereux (mélange latin +
-          autre script, ex. « pаypal ») reste couvert par la branche « scripts
-          mélangés » indépendamment de cette liste.
-        - Les combinaisons de scripts légitimes (japonais Han+Kana, coréen
-          Han+Hangul ; cf. `_LEGIT_MULTISCRIPT_SETS`) sont whitelistées pour
-          éviter de classer en « high » des IDN parfaitement valides.
-        - La conversion en Punycode (validateur + ce check) s'appuie sur le codec
-          `.encode("idna")` de la stdlib, qui implémente IDNA2003 et applique un
-          mapping silencieux NON conforme aux navigateurs modernes
-          (UTS#46/IDNA2008) — ex. « straße.de » → « strasse.de ». Pour un outil
-          comparant l'apparence d'un domaine à sa forme réelle, la normalisation
-          peut donc différer de celle vue par la victime dans son navigateur.
+        - The "confusable" detection relies on `CONFUSABLE_CHARS`, a partial
+          allowlist (Cyrillic/Greek). Entire families of homoglyphs (Armenian,
+          fullwidth, mathematical alphanumerics…) are not listed and fall back to
+          "info". The most dangerous case (mix of Latin + another script, e.g.
+          "pаypal") remains covered by the "mixed scripts" branch independently of
+          this list.
+        - Legitimate script combinations (Japanese Han+Kana, Korean Han+Hangul;
+          cf. `app.homograph`) are whitelisted to avoid classifying perfectly
+          valid IDNs as "high".
+        - The Punycode conversion (validator + this check) relies on the stdlib
+          `.encode("idna")` codec, which implements IDNA2003 and applies a silent
+          mapping NOT conformant to modern browsers (UTS#46/IDNA2008) — e.g.
+          "straße.de" → "strasse.de". For a tool comparing the appearance of a
+          domain to its real form, the normalization may therefore differ from the
+          one seen by the victim in their browser.
         """
-        idn_labels: list[tuple[str, str]] = []  # (label ASCII, label Unicode)
+        idn_labels: list[tuple[str, str]] = []  # (ASCII label, Unicode label)
         for label in domain.split("."):
             if not label.startswith("xn--"):
                 continue
@@ -446,10 +372,10 @@ class DnsScanner(BaseScanner):
             idn_labels.append((label, unicode_label))
 
         if not idn_labels:
-            return  # Domaine ASCII pur : pas de risque homographe
+            return  # Pure ASCII domain: no homograph risk
 
         for ascii_label, unicode_label in idn_labels:
-            scripts = _alpha_scripts(unicode_label)
+            scripts = alpha_scripts(unicode_label)
             alpha = [c for c in unicode_label if c.isalpha()]
             raw = json.dumps({
                 "label": ascii_label,
@@ -457,7 +383,7 @@ class DnsScanner(BaseScanner):
                 "scripts": sorted(scripts),
             })
 
-            if len(scripts) > 1 and not _is_legit_multiscript(scripts):
+            if len(scripts) > 1 and not is_legit_multiscript(scripts):
                 findings.append(FindingData(
                     severity="high",
                     title="Domaine homographe : scripts mélangés",
@@ -470,7 +396,7 @@ class DnsScanner(BaseScanner):
                     remediation="Vérifier l'authenticité du domaine et comparer avec la forme Punycode (xn--).",
                     raw_data=raw,
                 ))
-            elif alpha and "LATIN" not in scripts and all(c in _CONFUSABLE_CHARS for c in alpha):
+            elif alpha and "LATIN" not in scripts and all(c in CONFUSABLE_CHARS for c in alpha):
                 findings.append(FindingData(
                     severity="medium",
                     title="Domaine homographe potentiel (caractères confusables)",
@@ -495,7 +421,7 @@ class DnsScanner(BaseScanner):
 
 
 def _try_axfr(ns_host: str, domain: str) -> bool:
-    """Tente un transfert de zone AXFR (bloquant, à exécuter dans un executor)."""
+    """Attempt an AXFR zone transfer (blocking, to be run in an executor)."""
     import dns.query
     import dns.zone
     try:
