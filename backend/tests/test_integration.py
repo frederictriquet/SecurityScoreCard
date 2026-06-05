@@ -64,7 +64,7 @@ def _dns_mock():
     class FakeMx:
         def __init__(self, host):
             self.exchange = MagicMock()
-            self.exchange.__str__ = lambda s: host
+            self.exchange.__str__ = MagicMock(return_value=host)
             self.preference = 10
 
     async def fake_resolve(name, rdtype):
