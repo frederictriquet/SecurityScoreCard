@@ -183,16 +183,26 @@ class DnsScanner(BaseScanner):
             return
 
         loop = asyncio.get_event_loop()
-        missing: list[str] = []
-        reachable = 0
-        for mx_host in mx_hosts[:3]:
+        probed_hosts = mx_hosts[:3]
+
+        async def _probe(mx_host: str) -> bool | None:
             try:
-                result = await asyncio.wait_for(
+                return await asyncio.wait_for(
                     loop.run_in_executor(None, _probe_starttls, mx_host),
                     timeout=10,
                 )
             except Exception:
-                result = None  # timeout / executor error → indeterminate
+                return None  # timeout / executor error → indeterminate
+
+        # Probe the (up to 3) hosts concurrently. Outbound port 25 is almost
+        # always blocked in cloud/CI deployments, so serial probing would add up
+        # to the sum of every per-host timeout; running them together caps the
+        # worst case at a single timeout.
+        results = await asyncio.gather(*(_probe(h) for h in probed_hosts))
+
+        missing: list[str] = []
+        reachable = 0
+        for mx_host, result in zip(probed_hosts, results):
             if result is None:
                 continue  # could not connect (port 25 blocked, refused...): skip
             reachable += 1
