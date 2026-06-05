@@ -5,8 +5,8 @@ Primitives shared between two use cases:
 - the DNS scanner (`scanners.dns._check_idn_homograph`) which CLASSIFIES into
   findings a domain that has already been validated and converted to Punycode;
 - the validator (`schemas.validate_domain`) which, when it REJECTS a suspicious
-  non-ASCII domain, must EXPLAIN why rather than return a terse "Domaine
-  invalide".
+  non-ASCII domain, must EXPLAIN why rather than return a terse "Invalid
+  domain".
 
 Centralizing the list of "confusable" characters and the heuristic script
 detection here avoids any divergence between these two use cases (a list that

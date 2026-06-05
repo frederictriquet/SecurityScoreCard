@@ -45,7 +45,7 @@
   }
 
   function confirmHomograph() {
-    // "Scanner quand même": re-issues the request with explicit confirmation.
+    // "Scan anyway": re-issues the request with explicit confirmation.
     const target = homographWarning.domain;
     homographWarning = null;
     startScan(target, true);
