@@ -122,6 +122,22 @@ async def _get_scan_with_modules(scan_id: str) -> Scan:
         return result.scalar_one()
 
 
+async def _mark_completed(scan_id: str) -> None:
+    """Force a scan into the ``completed`` state.
+
+    The rescan endpoint only re-runs a scan that is in a terminal state. Unit
+    tests that mock ``run_scan`` never let the background run finish, so the scan
+    stays ``pending``; this helper puts it in the state a finished scan would
+    really be in before a rescan.
+    """
+    async with _db.AsyncSessionLocal() as session:
+        scan = (
+            await session.execute(select(Scan).where(Scan.id == scan_id))
+        ).scalar_one()
+        scan.status = "completed"
+        await session.commit()
+
+
 # ===================================================================
 # Health endpoint
 # ===================================================================
@@ -496,6 +512,7 @@ class TestRescan:
     async def test_rescan_resets_scan(self, client):
         create_resp = await _create_scan(client)
         scan_id = create_resp.json()["id"]
+        await _mark_completed(scan_id)
 
         with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
             resp = await client.post(f"/api/scans/{scan_id}/rescan")
@@ -514,10 +531,30 @@ class TestRescan:
     async def test_rescan_preserves_domain(self, client):
         create_resp = await _create_scan(client, "test.org")
         scan_id = create_resp.json()["id"]
+        await _mark_completed(scan_id)
 
         with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
             resp = await client.post(f"/api/scans/{scan_id}/rescan")
         assert resp.json()["domain"] == "test.org"
+
+    async def test_rescan_rejected_while_in_progress(self, client):
+        """A rescan of a scan that is still pending/running is rejected (409).
+
+        Rescans are serialized per scan: while a scan or rescan of the same id is
+        in flight, a second rescan must not start a concurrent run that could
+        delete the modules out from under the running scanners.
+        """
+        create_resp = await _create_scan(client)
+        scan_id = create_resp.json()["id"]
+        # The freshly created scan is still "pending" (its run is in flight).
+
+        with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
+            resp = await client.post(f"/api/scans/{scan_id}/rescan")
+        assert resp.status_code == 409
+        assert "in progress" in resp.json()["detail"].lower()
+
+        # The scan is untouched: still pending, not reset by the rejected rescan.
+        assert (await _get_scan_with_modules(scan_id)).status == "pending"
 
 
 # ===================================================================
@@ -624,6 +661,7 @@ class TestRescanCascade:
         """Le rescan ne crée pas un nouveau Scan, il réutilise le même ID."""
         resp = await _create_scan(client)
         scan_id = resp.json()["id"]
+        await _mark_completed(scan_id)
 
         with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
             resp = await client.post(f"/api/scans/{scan_id}/rescan")
@@ -681,10 +719,15 @@ class TestRateLimiting:
         limiter.enabled = True
 
         for i in range(5):
+            # ``run_scan`` is mocked, so the scan never leaves "pending" on its
+            # own; put it back in a terminal state before each rescan so the
+            # request reaches the handler (and counts against the rate limit).
+            await _mark_completed(scan_id)
             with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
                 resp = await c.post(f"/api/scans/{scan_id}/rescan")
             assert resp.status_code == 200, f"Rescan {i+1} should succeed"
 
+        await _mark_completed(scan_id)
         with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
             resp = await c.post(f"/api/scans/{scan_id}/rescan")
         assert resp.status_code == 429
@@ -706,16 +749,13 @@ class TestConcurrency:
     async def test_concurrent_rescans_stay_consistent(self, client):
         """Two simultaneous rescans of the same scan must not corrupt it.
 
-        The orchestrator looks up each module by ``(scan_id, name)``. Without the
-        unique constraint, two overlapping rescans created duplicate modules,
-        which crashed the lookup (``MultipleResultsFound``), or deleted a module
-        mid-flight (``NoResultFound``). The scanner suspends mid-scan, so two
-        runners of the surviving module also interleave their finding writes.
-        With the constraint, idempotent module creation and the per-module claim,
-        the concurrent run converges to exactly one module holding its findings
-        exactly once, with no unhandled exception.
+        Rescans are serialized per scan with an atomic claim on the scan status:
+        exactly one of two overlapping rescans wins the claim and re-runs; the
+        loser is rejected with 409 instead of deleting the modules the winner is
+        recreating. The scan ends with exactly one module holding its findings
+        once, and no request raises.
         """
-        finding = FindingData(severity="high", title="Risky", description="Dup risk")
+        finding = FindingData(severity="high", title="Risky", description="Once")
         scanners = [_SlowScanner("s", 1.0, score=80, findings=[finding])]
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
         scan_id = resp.json()["id"]
@@ -736,23 +776,24 @@ class TestConcurrency:
             )
 
         # No exception escapes from either request (background tasks included).
+        statuses = []
         for r in results:
             assert not isinstance(r, BaseException), f"Unexpected exception: {r!r}"
-            assert r.status_code == 200
+            statuses.append(r.status_code)
+        # Exactly one rescan was accepted; the other lost the claim (409).
+        assert sorted(statuses) == [200, 409]
 
-        # The scan is still accessible and holds exactly one module — the race no
-        # longer leaves duplicated ``(scan_id, "s")`` rows behind.
+        # The scan is still accessible and holds exactly one module — serializing
+        # the rescans leaves no duplicated ``(scan_id, "s")`` rows behind.
         get_resp = await client.get(f"/api/scans/{scan_id}")
         assert get_resp.status_code == 200
         data = get_resp.json()
         assert data["status"] == "completed"
         assert len(data["modules"]) == 1
         assert data["modules"][0]["name"] == "s"
-        # The single finding is persisted once, not duplicated by the second
-        # interleaved runner.
+        # The single finding is persisted once, not duplicated by a second run.
         assert len(data["modules"][0]["findings"]) == 1
 
-        # The unique constraint holds at the storage level too.
         async with _db.AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ScanModule)
@@ -762,6 +803,56 @@ class TestConcurrency:
             modules = result.scalars().all()
         assert len(modules) == 1
         assert len(modules[0].findings) == 1
+
+    async def test_staggered_rescan_during_scan_is_rejected(self, client):
+        """A rescan firing *while the first run's scanners are mid-scan* must be
+        rejected, not corrupt the in-flight run.
+
+        This is the real-world case (rescans a few seconds apart): the first
+        rescan resets the scan and its background run starts; its scanners suspend
+        on network I/O; a second rescan then arrives. Without serialization the
+        second rescan hard-deletes the modules the first run is still scanning, so
+        when a runner commits its result it updates a now-deleted row and
+        SQLAlchemy raises ``StaleDataError`` (surfacing as an HTTP 500 and a
+        half-done run). Serializing rescans per scan rejects the mid-scan rescan
+        with 409 and lets the first run finish cleanly.
+
+        The scanner suspends for 0.5s; the second rescan is fired 0.1s in, while
+        the first run is provably still mid-scan.
+        """
+        finding = FindingData(severity="high", title="Risky", description="Once")
+        # Create + run an initial scan to completion so it can be rescanned.
+        scanners = [_SlowScanner("s", 1.0, score=80, findings=[finding], delay=0.5)]
+        resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
+        scan_id = resp.json()["id"]
+
+        async def rescan():
+            return await client.post(f"/api/scans/{scan_id}/rescan")
+
+        with patch("app.scanners.orchestrator.SCANNERS",
+                   [_SlowScanner("s", 1.0, score=90, findings=[finding], delay=0.5)]):
+            # Fire the first rescan; its background run starts and its scanner
+            # suspends mid-scan during the sleep below.
+            first = asyncio.create_task(rescan())
+            await asyncio.sleep(0.1)
+            # Second rescan arrives while the first run is still scanning.
+            second = await rescan()
+            first_resp = await first
+
+        # The first run completed cleanly (no StaleDataError surfacing as 500)...
+        assert not isinstance(first_resp, BaseException), f"Unexpected: {first_resp!r}"
+        assert first_resp.status_code == 200
+        # ...and the mid-scan rescan was rejected instead of corrupting it.
+        assert second.status_code == 409
+
+        # Exactly one module with its finding once — the in-flight run was never
+        # deleted out from under its scanners.
+        get_resp = await client.get(f"/api/scans/{scan_id}")
+        data = get_resp.json()
+        assert data["status"] == "completed"
+        assert len(data["modules"]) == 1
+        assert data["modules"][0]["score"] == 90
+        assert len(data["modules"][0]["findings"]) == 1
 
     async def test_concurrent_create_different_domains(self, client):
         """Créations simultanées sur des domaines différents ne s'interfèrent pas."""

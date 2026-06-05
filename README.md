@@ -79,12 +79,6 @@ git pull
 docker compose up -d --build
 ```
 
-The database lives on the `db_data` volume and is migrated in place on startup —
-no manual step or volume wipe is required. In particular, the `(scan_id, name)`
-unique index that keeps rescans concurrency-safe is backfilled automatically on
-existing databases (any pre-existing duplicate module rows are collapsed first),
-so stored scans are preserved across the upgrade.
-
 ## Local Development
 
 ### Backend

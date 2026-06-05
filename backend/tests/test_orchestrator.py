@@ -59,32 +59,6 @@ class FailingScanner(BaseScanner):
         raise RuntimeError(self._error_msg)
 
 
-class SlowScanner(BaseScanner):
-    """Scanner with a real ``await`` point between reading its module and
-    returning findings.
-
-    Production scanners are network I/O-bound, so two runners of the same module
-    yield control to each other mid-scan. A scanner that returns synchronously
-    never lets the two coroutines interleave, which is exactly why a no-await
-    fake hides the finding-duplication race. This one suspends so the
-    interleaving is observable in the test.
-    """
-
-    def __init__(self, name: str, weight: float, score: int,
-                 findings: list[FindingData] | None = None, delay: float = 0.05):
-        self.name = name
-        self.weight = weight
-        self._score = score
-        self._findings = findings or []
-        self._delay = delay
-
-    async def scan(self, domain: str) -> ScanResult:
-        import asyncio
-        await asyncio.sleep(self._delay)
-        # Return a fresh list each call so concurrent runs never share state.
-        return ScanResult(score=self._score, findings=list(self._findings))
-
-
 async def _create_scan_in_db(domain: str = "example.com") -> str:
     """Insert a pending Scan into the DB and return its id."""
     async with _db.AsyncSessionLocal() as session:
@@ -764,107 +738,18 @@ class TestRunScanFindingsPersistence:
 
 
 # ===================================================================
-# run_scan — concurrency safety (orchestrator-rescan-race)
+# run_scan — single-run nominal path
+#
+# Concurrency safety for overlapping rescans is enforced upstream, in the
+# rescan router (it serializes rescans per scan so two runs of the same scan
+# never overlap). The orchestrator therefore only ever sees one run per scan;
+# the end-to-end serialization is covered in tests/test_api.py.
 # ===================================================================
 
 
 class TestRunScanConcurrency:
-    async def test_concurrent_run_single_scanner_no_duplicate_findings(self):
-        """Two runners of the same module write its findings exactly once.
-
-        This is the core of the production race. Overlapping rescans produce two
-        ``run_single_scanner`` coroutines against the same ``(scan_id, name)``
-        module. The scanner suspends mid-scan (real network I/O does the same),
-        so without the per-module claim both runners clear the findings, both
-        run, and both insert — leaving every finding duplicated. The atomic
-        compare-and-swap on module status lets only one runner proceed, so the
-        findings are persisted exactly once.
-        """
-        import asyncio
-
-        scan_id = await _create_scan_in_db()
-        findings = [
-            FindingData(severity="high", title="Risky", description="Dup risk"),
-            FindingData(severity="low", title="Note", description="Second"),
-        ]
-
-        # Single shared module row, as overlapping rescans converge to.
-        async with _db.AsyncSessionLocal() as session:
-            session.add(ScanModule(
-                scan_id=scan_id, name="dns", weight=1.0, status="pending",
-            ))
-            await session.commit()
-
-        scanner = SlowScanner("dns", 1.0, score=80, findings=findings)
-        results = await asyncio.gather(
-            run_single_scanner(scanner, "example.com", scan_id),
-            run_single_scanner(scanner, "example.com", scan_id),
-            return_exceptions=True,
-        )
-
-        for r in results:
-            assert not isinstance(r, BaseException), f"Unexpected exception: {r!r}"
-
-        modules = await _get_modules(scan_id)
-        assert len(modules) == 1
-        # The invariant the fix guarantees: findings written once, not doubled
-        # by the interleaved second runner.
-        assert len(modules[0].findings) == 2
-        assert modules[0].status == "completed"
-
-    async def test_concurrent_run_scans_same_scan_no_duplicates(self):
-        """Two overlapping run_scan calls on the same scan stay consistent.
-
-        This reproduces the production race: a rescan deletes and recreates the
-        modules while another run is still in flight. Without the fix the second
-        run created duplicate ``(scan_id, name)`` modules and
-        ``run_single_scanner`` crashed, or two runners duplicated a module's
-        findings. With the unique constraint, idempotent module creation and the
-        per-module claim, the two runs converge to exactly one module per scanner
-        with each finding persisted once, and never raise.
-        """
-        import asyncio
-
-        scan_id = await _create_scan_in_db()
-        # Scanners suspend mid-scan so the two concurrent runs genuinely
-        # interleave, the way real I/O-bound scanners do.
-        fake_scanners = [
-            SlowScanner("alpha", 0.5, score=90, findings=[
-                FindingData(severity="high", title="A1", description="alpha 1"),
-            ]),
-            SlowScanner("beta", 0.5, score=70, findings=[
-                FindingData(severity="medium", title="B1", description="beta 1"),
-                FindingData(severity="low", title="B2", description="beta 2"),
-            ]),
-        ]
-
-        with patch("app.scanners.orchestrator.SCANNERS", fake_scanners):
-            results = await asyncio.gather(
-                run_scan(scan_id, "example.com"),
-                run_scan(scan_id, "example.com"),
-                return_exceptions=True,
-            )
-
-        # Neither concurrent run raised (no MultipleResultsFound / NoResultFound).
-        for r in results:
-            assert not isinstance(r, BaseException), f"Unexpected exception: {r!r}"
-
-        modules = await _get_modules(scan_id)
-        # Exactly one module per scanner — the constraint prevents duplicates.
-        names = sorted(m.name for m in modules)
-        assert names == ["alpha", "beta"]
-
-        findings_by_name = {m.name: len(m.findings) for m in modules}
-        # Each module keeps exactly its scanner's findings, none duplicated.
-        assert findings_by_name == {"alpha": 1, "beta": 2}
-        for m in modules:
-            assert m.status == "completed"
-
-        scan = await _get_scan_full(scan_id)
-        assert scan.status == "completed"
-
     async def test_single_run_scan_still_nominal(self):
-        """The non-concurrent path is unaffected by the per-module claim."""
+        """A single run_scan creates one module per scanner with its findings."""
         scan_id = await _create_scan_in_db()
         fake_scanners = [
             FakeScanner("alpha", 0.6, score=100, findings=[

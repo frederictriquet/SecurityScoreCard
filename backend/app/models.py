@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -32,20 +32,6 @@ class Scan(Base):
 
 class ScanModule(Base):
     __tablename__ = "scan_modules"
-
-    # A scan has at most one module per category. The constraint lets the
-    # orchestrator create modules idempotently (INSERT ... ON CONFLICT DO NOTHING)
-    # and guarantees a single row per (scan_id, name), so concurrent rescans can
-    # no longer produce duplicates that crash the per-module lookup.
-    # NOTE: the SQLite schema is built with ``create_all`` (no Alembic), which
-    # only adds this index to freshly created databases. Existing databases on a
-    # persistent volume are migrated in place at startup by
-    # ``database._ensure_scan_module_unique_index`` (it backfills the index,
-    # collapsing any pre-existing duplicate rows first), so the orchestrator's
-    # ON CONFLICT path works on both new and already-deployed databases.
-    __table_args__ = (
-        UniqueConstraint("scan_id", "name", name="uq_scan_module_scan_id_name"),
-    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_uuid)
     scan_id: Mapped[str] = mapped_column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
