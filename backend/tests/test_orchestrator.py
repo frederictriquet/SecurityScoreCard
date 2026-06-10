@@ -225,14 +225,14 @@ class TestRunSingleScannerSuccess:
         findings = [
             FindingData(
                 severity="high",
-                title="Problème A",
+                title="Issue A",
                 description="Description A",
                 remediation="Fix A",
                 raw_data='{"detail": "a"}',
             ),
             FindingData(
                 severity="low",
-                title="Problème B",
+                title="Issue B",
                 description="Description B",
             ),
         ]
@@ -251,13 +251,13 @@ class TestRunSingleScannerSuccess:
         assert len(db_findings) == 2
 
         # Verify that each field is correctly persisted
-        finding_a = next(f for f in db_findings if f.title == "Problème A")
+        finding_a = next(f for f in db_findings if f.title == "Issue A")
         assert finding_a.severity == "high"
         assert finding_a.description == "Description A"
         assert finding_a.remediation == "Fix A"
         assert finding_a.raw_data == '{"detail": "a"}'
 
-        finding_b = next(f for f in db_findings if f.title == "Problème B")
+        finding_b = next(f for f in db_findings if f.title == "Issue B")
         assert finding_b.severity == "low"
         assert finding_b.remediation is None
         assert finding_b.raw_data is None
@@ -672,15 +672,15 @@ class TestRunScanFindingsPersistence:
 
         fake_scanners = [
             FakeScanner("dns", 0.5, score=80, findings=[
-                FindingData(severity="high", title="SPF manquant", description="Pas de SPF"),
+                FindingData(severity="high", title="SPF missing", description="No SPF record"),
                 FindingData(severity="medium", title="DMARC p=none", description="Monitoring"),
             ]),
             FakeScanner("tls", 0.5, score=70, findings=[
                 FindingData(
                     severity="critical",
-                    title="Cert expiré",
-                    description="Le cert a expiré",
-                    remediation="Renouveler",
+                    title="Cert expired",
+                    description="The certificate has expired",
+                    remediation="Renew the certificate",
                     raw_data='{"days": -5}',
                 ),
             ]),
@@ -698,9 +698,9 @@ class TestRunScanFindingsPersistence:
         # Verify full persistence of the TLS finding
         cert_finding = tls_mod.findings[0]
         assert cert_finding.severity == "critical"
-        assert cert_finding.title == "Cert expiré"
-        assert cert_finding.description == "Le cert a expiré"
-        assert cert_finding.remediation == "Renouveler"
+        assert cert_finding.title == "Cert expired"
+        assert cert_finding.description == "The certificate has expired"
+        assert cert_finding.remediation == "Renew the certificate"
         assert cert_finding.raw_data == '{"days": -5}'
 
     async def test_info_findings_do_not_affect_score(self):
@@ -735,3 +735,35 @@ class TestRunScanFindingsPersistence:
             await run_scan(scan_id, "custom-domain.org")
 
         assert received_domain == "custom-domain.org"
+
+
+# ===================================================================
+# run_scan — single-run nominal path
+#
+# Concurrency safety for overlapping rescans is enforced upstream, in the
+# rescan router (it serializes rescans per scan so two runs of the same scan
+# never overlap). The orchestrator therefore only ever sees one run per scan;
+# the end-to-end serialization is covered in tests/test_api.py.
+# ===================================================================
+
+
+class TestRunScanConcurrency:
+    async def test_single_run_scan_still_nominal(self):
+        """A single run_scan creates one module per scanner with its findings."""
+        scan_id = await _create_scan_in_db()
+        fake_scanners = [
+            FakeScanner("alpha", 0.6, score=100, findings=[
+                FindingData(severity="high", title="A", description="alpha"),
+            ]),
+            FakeScanner("beta", 0.4, score=50),
+        ]
+        with patch("app.scanners.orchestrator.SCANNERS", fake_scanners):
+            await run_scan(scan_id, "example.com")
+
+        modules = await _get_modules(scan_id)
+        assert sorted(m.name for m in modules) == ["alpha", "beta"]
+        alpha = next(m for m in modules if m.name == "alpha")
+        assert len(alpha.findings) == 1
+        scan = await _get_scan_full(scan_id)
+        assert scan.status == "completed"
+        assert scan.score == 80

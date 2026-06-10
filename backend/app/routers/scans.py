@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -203,6 +203,27 @@ async def rescan_in_place(
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
 
+    # Serialize rescans per scan. Claim the scan with an atomic compare-and-swap:
+    # the UPDATE only matches when the scan is in a terminal state, so a rescan
+    # arriving while a scan or rescan of the same id is still pending or running
+    # loses the claim. This removes the race where a second rescan deleted the
+    # modules out from under the first run's in-flight scanners (which raised
+    # SQLAlchemy StaleDataError). Only the claim winner deletes and recreates the
+    # modules and findings, so the per-module work is never concurrent.
+    claim = await db.execute(
+        update(Scan)
+        .where(Scan.id == scan_id, Scan.status.in_(("completed", "failed")))
+        .values(status="pending")
+    )
+    if claim.rowcount == 0:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A scan is already in progress for this resource",
+        )
+
+    # We now exclusively own the scan: drop the previous run's modules (their
+    # findings cascade) and reset the scan's result fields before re-running.
     for module in scan.modules:
         await db.delete(module)
 
