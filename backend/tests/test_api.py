@@ -1,4 +1,4 @@
-"""Tests pour les routes API — endpoints CRUD scans, intégration, rate limiting."""
+"""Tests for the API routes — scans CRUD endpoints, integration, rate limiting."""
 
 import asyncio
 from typing import cast
@@ -30,7 +30,7 @@ async def setup_db(isolated_db):
 
 @pytest.fixture
 async def client():
-    """Client HTTP avec rate limiting désactivé (par défaut)."""
+    """HTTP client with rate limiting disabled (default)."""
     limiter.enabled = False
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -40,7 +40,7 @@ async def client():
 
 @pytest.fixture
 async def client_with_rate_limit():
-    """Client HTTP avec rate limiting ACTIVÉ."""
+    """HTTP client with rate limiting ENABLED."""
     limiter.enabled = True
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -49,14 +49,14 @@ async def client_with_rate_limit():
 
 
 async def _create_scan(client, domain="example.com"):
-    """Helper pour créer un scan (run_scan mocké) et retourner la réponse."""
+    """Helper to create a scan (run_scan mocked) and return the response."""
     with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
         resp = await client.post("/api/scans", json={"domain": domain})
     return resp
 
 
 async def _create_scan_with_orchestrator(client, domain="example.com", scanners=None):
-    """Crée un scan ET exécute l'orchestrateur avec des scanners factices."""
+    """Create a scan AND run the orchestrator with fake scanners."""
     if scanners is None:
         scanners = [_FakeScanner("fake", 1.0, 100, [])]
     with patch("app.scanners.orchestrator.SCANNERS", scanners):
@@ -151,7 +151,7 @@ class TestHealth:
 
 
 # ===================================================================
-# POST /api/scans — unit tests (run_scan mocké)
+# POST /api/scans — unit tests (run_scan mocked)
 # ===================================================================
 
 
@@ -255,13 +255,13 @@ class TestCreateScanHomographConfirmation:
 
 
 # ===================================================================
-# POST /api/scans — intégration E2E (vrai orchestrateur)
+# POST /api/scans — E2E integration (real orchestrator)
 # ===================================================================
 
 
 class TestCreateScanE2E:
     async def test_full_flow_scan_to_completed(self, client):
-        """API → orchestrateur → fake scanners → DB → réponse complète via GET."""
+        """API → orchestrator → fake scanners → DB → full response via GET."""
         scanners = [
             _FakeScanner("dns", 0.5, score=80, findings=[
                 FindingData(severity="high", title="SPF missing", description="No SPF"),
@@ -272,7 +272,7 @@ class TestCreateScanE2E:
         assert resp.status_code == 201
         scan_id = resp.json()["id"]
 
-        # Relire via l'API GET pour obtenir l'état final avec modules et findings
+        # Re-read via the GET API to get the final state with modules and findings
         get_resp = await client.get(f"/api/scans/{scan_id}")
         data = get_resp.json()
         assert data["status"] == "completed"
@@ -290,7 +290,7 @@ class TestCreateScanE2E:
         assert len(tls_mod["findings"]) == 0
 
     async def test_e2e_get_scan_returns_modules_and_findings(self, client):
-        """GET /api/scans/{id} retourne les modules et findings après exécution."""
+        """GET /api/scans/{id} returns the modules and findings after execution."""
         scanners = [
             _FakeScanner("headers", 1.0, score=70, findings=[
                 FindingData(severity="medium", title="CSP missing", description="No CSP"),
@@ -311,7 +311,7 @@ class TestCreateScanE2E:
         assert len(data["modules"][0]["findings"]) == 2
 
     async def test_e2e_scanner_failure_handled(self, client):
-        """Un scanner qui crash ne fait pas échouer le scan global."""
+        """A scanner that crashes does not fail the whole scan."""
         scanners = [
             _FakeScanner("good", 0.5, score=100),
             _FailingScanner("broken", 0.5, "Network error"),
@@ -343,7 +343,7 @@ class TestCreateScanE2E:
         assert scan.grade == "F"
 
     async def test_e2e_findings_persisted_with_all_fields(self, client):
-        """Vérifie que remediation et raw_data traversent toute la chaîne."""
+        """Check that remediation and raw_data flow through the whole chain."""
         scanners = [
             _FakeScanner("tls", 1.0, score=70, findings=[
                 FindingData(
@@ -399,11 +399,11 @@ class TestListScans:
         assert "score" in scan
         assert "grade" in scan
         assert "created_at" in scan
-        # ScanSummary ne contient pas modules
+        # ScanSummary does not contain modules
         assert "modules" not in scan
 
     async def test_list_scans_limited_to_50(self, client):
-        """L'API retourne max 50 scans même s'il y en a plus."""
+        """The API returns at most 50 scans even when there are more."""
         for i in range(55):
             await _create_scan(client, f"domain{i}.com")
 
@@ -435,7 +435,7 @@ class TestGetScan:
         assert "not found" in resp.json()["detail"].lower()
 
     async def test_get_scan_with_completed_modules(self, client):
-        """GET retourne les modules et findings après exécution E2E."""
+        """GET returns the modules and findings after E2E execution."""
         scanners = [_FakeScanner("s", 1.0, 95, [
             FindingData(severity="low", title="Minor", description="D"),
         ])]
@@ -472,20 +472,20 @@ class TestDeleteScan:
         assert resp.status_code == 404
 
     async def test_delete_cascades_modules_and_findings(self, client):
-        """DELETE supprime aussi les ScanModule et Finding associés."""
+        """DELETE also removes the associated ScanModule and Finding rows."""
         scanners = [_FakeScanner("s", 1.0, 80, [
             FindingData(severity="high", title="Issue", description="Desc"),
         ])]
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
         scan_id = resp.json()["id"]
 
-        # Vérifier qu'il y a des modules et findings en DB
+        # Check that there are modules and findings in the DB
         assert await _count_rows(ScanModule) >= 1
         assert await _count_rows(Finding) >= 1
 
         await client.delete(f"/api/scans/{scan_id}")
 
-        # Tout est supprimé en cascade
+        # Everything is deleted in cascade
         assert await _count_rows(Scan) == 0
         assert await _count_rows(ScanModule) == 0
         assert await _count_rows(Finding) == 0
@@ -558,13 +558,13 @@ class TestRescan:
 
 
 # ===================================================================
-# POST /api/scans/{scan_id}/rescan — intégration cascade
+# POST /api/scans/{scan_id}/rescan — cascade integration
 # ===================================================================
 
 
 class TestRescanCascade:
     async def test_rescan_deletes_old_modules_and_findings(self, client):
-        """Le rescan supprime les anciens modules/findings puis en recrée."""
+        """The rescan deletes the old modules/findings then recreates them."""
         scanners_v1 = [
             _FakeScanner("dns", 0.5, score=60, findings=[
                 FindingData(severity="high", title="Old SPF", description="V1"),
@@ -585,7 +585,7 @@ class TestRescanCascade:
         assert total_findings_v1 == 3
         old_module_ids = {m["id"] for m in data_v1["modules"]}
 
-        # Rescan avec des scanners différents
+        # Rescan with different scanners
         scanners_v2 = [
             _FakeScanner("dns", 0.5, score=90, findings=[
                 FindingData(severity="low", title="New DNS note", description="V2"),
@@ -596,23 +596,23 @@ class TestRescanCascade:
             resp = await client.post(f"/api/scans/{scan_id}/rescan")
         assert resp.status_code == 200
 
-        # V2 via GET API : anciens modules supprimés, nouveaux créés
+        # V2 via GET API: old modules deleted, new ones created
         get_v2 = await client.get(f"/api/scans/{scan_id}")
         data_v2 = get_v2.json()
         assert data_v2["status"] == "completed"
         assert len(data_v2["modules"]) == 2
 
         new_module_ids = {m["id"] for m in data_v2["modules"]}
-        assert old_module_ids.isdisjoint(new_module_ids), "Les modules V1 doivent être supprimés"
+        assert old_module_ids.isdisjoint(new_module_ids), "V1 modules must be deleted"
 
         total_findings_v2 = sum(len(m["findings"]) for m in data_v2["modules"])
-        assert total_findings_v2 == 1  # seul le finding "New DNS note" subsiste
+        assert total_findings_v2 == 1  # only the "New DNS note" finding remains
 
         dns_mod = next(m for m in data_v2["modules"] if m["name"] == "dns")
         assert dns_mod["findings"][0]["title"] == "New DNS note"
 
     async def test_rescan_old_findings_not_in_db(self, client):
-        """Vérifie que les anciens Finding sont réellement purgés de la DB."""
+        """Check that the old Finding rows are actually purged from the DB."""
         scanners_v1 = [
             _FakeScanner("s", 1.0, score=50, findings=[
                 FindingData(severity="critical", title="Old critical", description="V1"),
@@ -621,7 +621,7 @@ class TestRescanCascade:
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners_v1)
         scan_id = resp.json()["id"]
 
-        # Compter les findings avant rescan
+        # Count findings before rescan
         count_before = await _count_rows(Finding)
         assert count_before >= 1
 
@@ -629,7 +629,7 @@ class TestRescanCascade:
         with patch("app.scanners.orchestrator.SCANNERS", scanners_v2):
             await client.post(f"/api/scans/{scan_id}/rescan")
 
-        # Aucun finding ne doit rester pour ce scan
+        # No finding must remain for this scan
         async with _db.AsyncSessionLocal() as session:
             result = await session.execute(
                 select(Finding)
@@ -640,7 +640,7 @@ class TestRescanCascade:
         assert len(findings) == 0
 
     async def test_rescan_score_updates(self, client):
-        """Le rescan recalcule le score avec les nouveaux résultats."""
+        """The rescan recomputes the score with the new results."""
         scanners_v1 = [_FakeScanner("s", 1.0, score=30)]
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners_v1)
         scan_id = resp.json()["id"]
@@ -658,7 +658,7 @@ class TestRescanCascade:
         assert scan_v2.grade == "A"
 
     async def test_rescan_same_scan_id_preserved(self, client):
-        """Le rescan ne crée pas un nouveau Scan, il réutilise le même ID."""
+        """The rescan does not create a new Scan, it reuses the same ID."""
         resp = await _create_scan(client)
         scan_id = resp.json()["id"]
         await _mark_completed(scan_id)
@@ -669,7 +669,7 @@ class TestRescanCascade:
         assert await _count_rows(Scan) == 1
 
     async def test_rescan_timestamps_reset_and_updated(self, client):
-        """started_at et completed_at sont réinitialisés puis repositionnés."""
+        """started_at and completed_at are reset then set again."""
         scanners = [_FakeScanner("s", 1.0, score=80)]
         resp = await _create_scan_with_orchestrator(client, "example.com", scanners)
         scan_id = resp.json()["id"]
@@ -682,7 +682,7 @@ class TestRescanCascade:
             await client.post(f"/api/scans/{scan_id}/rescan")
 
         scan_v2 = await _get_scan_with_modules(scan_id)
-        assert scan_v2.created_at >= v1_created  # created_at a été rafraîchi par now_utc()
+        assert scan_v2.created_at >= v1_created  # created_at was refreshed by now_utc()
         assert scan_v2.started_at is not None
         assert scan_v2.completed_at is not None
 
@@ -694,25 +694,25 @@ class TestRescanCascade:
 
 class TestRateLimiting:
     async def test_create_scan_rate_limited_after_5(self, client_with_rate_limit):
-        """POST /api/scans est limité à 5/minute."""
+        """POST /api/scans is limited to 5/minute."""
         c = client_with_rate_limit
         for i in range(5):
             with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
                 resp = await c.post("/api/scans", json={"domain": f"d{i}.com"})
             assert resp.status_code == 201, f"Request {i+1} should succeed"
 
-        # La 6e requête doit être rejetée
+        # The 6th request must be rejected
         with patch("app.routers.scans.run_scan", new_callable=AsyncMock):
             resp = await c.post("/api/scans", json={"domain": "one-too-many.com"})
         assert resp.status_code == 429
 
     async def test_rescan_rate_limited_after_5(self, client_with_rate_limit):
-        """POST /api/scans/{id}/rescan est limité à 5/minute."""
+        """POST /api/scans/{id}/rescan is limited to 5/minute."""
         c = client_with_rate_limit
 
-        # Créer un scan (consomme 1 des 5 créations)
-        # Note: le rate limit est par endpoint ET global default (30/min)
-        # Créons le scan sans rate limit d'abord
+        # Create a scan (consumes 1 of the 5 creations)
+        # Note: the rate limit is per endpoint AND a global default (30/min)
+        # Create the scan without rate limit first
         limiter.enabled = False
         resp = await _create_scan(c)
         scan_id = resp.json()["id"]
@@ -733,7 +733,7 @@ class TestRateLimiting:
         assert resp.status_code == 429
 
     async def test_get_and_list_not_rate_limited_at_5(self, client_with_rate_limit):
-        """GET endpoints ne sont pas limités à 5/min (default 30/min)."""
+        """GET endpoints are not limited to 5/min (default 30/min)."""
         c = client_with_rate_limit
         for _ in range(10):
             resp = await c.get("/api/scans")
@@ -855,7 +855,7 @@ class TestConcurrency:
         assert len(data["modules"][0]["findings"]) == 1
 
     async def test_concurrent_create_different_domains(self, client):
-        """Créations simultanées sur des domaines différents ne s'interfèrent pas."""
+        """Concurrent creations on different domains do not interfere."""
 
         async def create(domain):
             with patch("app.routers.scans.run_scan", new_callable=AsyncMock):

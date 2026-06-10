@@ -582,7 +582,7 @@ class TestFullIntegration:
             resp = await client.get(f"/api/scans/{scan_id}")
             data = resp.json()
 
-        # Find the "Certificat TLS expiré" finding
+        # Find the "TLS certificate expired" finding
         tls_module = next(m for m in data["modules"] if m["name"] == "tls")
         expired_finding = next(
             (f for f in tls_module["findings"] if "expired" in f["title"].lower()),
