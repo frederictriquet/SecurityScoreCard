@@ -533,7 +533,7 @@ class TestSpfLookups:
         assert len(findings) == 0  # 1 lookup
 
     async def test_spf_lookups_with_qualified_mechanisms(self, scanner, resolver):
-        """Les mécanismes qualifiés (+, -, ~, ?) doivent aussi être comptés."""
+        """Qualified mechanisms (+, -, ~, ?) must also be counted."""
         includes = " ".join(f"+include:{chr(97 + i)}.com" for i in range(11))
         resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
             FakeTxtRecord(f'"v=spf1 {includes} ~all"')
@@ -901,7 +901,7 @@ class TestIdnHomograph:
         assert "CJK" in findings[0].raw_data and "CYRILLIC" in findings[0].raw_data
 
     async def test_accented_latin_info(self, scanner):
-        """An accented Latin label (« café ») stays mono-script → info."""
+        """An accented Latin label ("café") stays mono-script → info."""
         domain = f"{_puny('café')}.com"
         findings = []
         await scanner._check_idn_homograph(domain, findings)

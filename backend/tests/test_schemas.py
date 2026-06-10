@@ -1,4 +1,4 @@
-"""Tests pour app.schemas — validation du domaine et sérialisation."""
+"""Tests for app.schemas — domain validation and serialization."""
 
 import pytest
 from pydantic import ValidationError
@@ -7,7 +7,7 @@ from app.schemas import ScanCreate, FindingOut, ScanModuleOut, ScanOut, ScanSumm
 
 
 # ===================================================================
-# ScanCreate — validation du domaine
+# ScanCreate — domain validation
 # ===================================================================
 
 
@@ -55,19 +55,19 @@ class TestScanCreateValidDomains:
 
 
 class TestScanCreateIdn:
-    """Conversion Punycode des domaines internationalisés / homographes.
+    """Punycode conversion of internationalized / homograph domains.
 
-    Sans cette conversion, un homographe Unicode collé tel quel par une victime
-    serait rejeté avant d'atteindre le scanner homographe (cf. ticket 1.14).
+    Without this conversion, a Unicode homograph pasted as-is by a victim
+    would be rejected before reaching the homograph scanner (cf. ticket 1.14).
     """
 
     def test_unicode_homograph_converted_to_punycode(self):
-        # « pаypal.com » avec un « а » cyrillique : doit être accepté et encodé.
+        # "pаypal.com" with a Cyrillic "а": must be accepted and encoded.
         scan = ScanCreate(domain="pаypal.com")
         assert scan.domain == "xn--pypal-4ve.com"
 
     def test_legit_idn_converted_to_punycode(self):
-        # IDN légitime (CJK) : accepté et encodé en Punycode.
+        # Legitimate IDN (CJK): accepted and encoded as Punycode.
         scan = ScanCreate(domain="中国.com")
         assert scan.domain == "xn--fiqs8s.com"
 
