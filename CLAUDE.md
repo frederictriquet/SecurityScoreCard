@@ -91,3 +91,5 @@ See `docs/FEATURES.md` for the full list of checks and their implementation stat
 
 - Tests must validate real behavior end-to-end (validator→orchestrator→scanner), not isolated internals or mock-only happy paths; avoid tautological string/regex assertions, and never depend on a full production build inside a unit test.
 - Don't anchor comments to volatile references (commit hashes, exact UI labels); describe the intent instead, and update or remove any comment whose referent you change in the same edit.
+- Any DB schema change (new constraint, index, column) must ship with a migration that works on an existing /data volume — Base.metadata.create_all does not alter existing tables; never rely on operators wiping the database.
+- One concern per commit: a behavior change (e.g. validator semantics) must never ride inside an unrelated feature commit, and every commit message must use a conventional type.

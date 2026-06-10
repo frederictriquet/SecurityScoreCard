@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+docker context use rancher-desktop
 cd "$(dirname "$0")"
 
 usage() {
