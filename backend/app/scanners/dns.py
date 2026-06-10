@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 import string
+from dataclasses import dataclass
 from typing import cast
 
 import dns.resolver
@@ -18,6 +19,26 @@ from app.homograph import (
     alpha_scripts,
     is_legit_multiscript,
 )
+
+
+@dataclass
+class MxProbeResult:
+    """Outcome of a single SMTP probe against an MX host (checks 9.1 + 9.2).
+
+    starttls:
+        ``True``  -> the server answered EHLO and advertised STARTTLS.
+        ``False`` -> the server answered EHLO but STARTTLS is absent.
+        ``None``  -> indeterminate (unreachable, port 25 blocked, EHLO refused).
+    cert_ok (only meaningful when ``starttls`` is True):
+        ``True``  -> TLS handshake completed and the certificate verified
+                     (trust chain, expiry, hostname == MX host).
+        ``False`` -> certificate verification failed; ``cert_error`` holds why.
+        ``None``  -> handshake failed for a non-certificate reason (timeout,
+                     reset...) -> indeterminate, never a finding.
+    """
+    starttls: bool | None
+    cert_ok: bool | None = None
+    cert_error: str | None = None
 
 
 class DnsScanner(BaseScanner):
@@ -156,16 +177,21 @@ class DnsScanner(BaseScanner):
             ))
 
     async def _check_starttls_mx(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
-        """Check whether each MX advertises STARTTLS (opportunistic SMTP encryption).
+        """Check STARTTLS support (9.1) and the MX TLS certificate (9.2).
 
-        For every MX host we open an SMTP connection on port 25, send EHLO and
-        look for the STARTTLS capability in the advertised extensions.
+        For every MX host we open a single SMTP connection on port 25, send EHLO
+        and look for the STARTTLS capability in the advertised extensions. When
+        STARTTLS is advertised, the same connection completes the TLS handshake
+        and validates the certificate (trust chain, expiry, hostname against the
+        MX host — not against the scanned domain).
 
         Critical caveat: outbound port 25 is very frequently blocked by cloud /
         CI / ISP networks (connection refused or timeout). When we cannot reach a
-        host we treat the result as *indeterminate* — never as "STARTTLS missing".
-        A finding is only raised for a host that answered EHLO without offering
-        STARTTLS, so a blocked port can never degrade the score.
+        host we treat the result as *indeterminate* — never as "STARTTLS missing"
+        nor as an invalid certificate. Findings are only raised from a positive
+        signal, so a blocked port can never degrade the score. Likewise, a TLS
+        handshake that fails for a non-certificate reason is indeterminate for
+        the certificate check.
         """
         try:
             mx_answers = await resolver.resolve(domain, "MX")
@@ -185,11 +211,11 @@ class DnsScanner(BaseScanner):
         loop = asyncio.get_event_loop()
         probed_hosts = mx_hosts[:3]
 
-        async def _probe(mx_host: str) -> bool | None:
+        async def _probe(mx_host: str) -> MxProbeResult | None:
             try:
                 return await asyncio.wait_for(
                     loop.run_in_executor(None, _probe_starttls, mx_host),
-                    timeout=10,
+                    timeout=15,
                 )
             except Exception:
                 return None  # timeout / executor error → indeterminate
@@ -202,12 +228,22 @@ class DnsScanner(BaseScanner):
 
         missing: list[str] = []
         reachable = 0
+        invalid_certs: list[tuple[str, str]] = []
+        valid_certs: list[str] = []
         for mx_host, result in zip(probed_hosts, results):
-            if result is None:
+            if result is None or result.starttls is None:
                 continue  # could not connect (port 25 blocked, refused...): skip
             reachable += 1
-            if result is False:
+            if result.starttls is False:
                 missing.append(mx_host)
+            elif result.cert_ok is True:
+                valid_certs.append(mx_host)
+            elif result.cert_ok is False:
+                invalid_certs.append(
+                    (mx_host, result.cert_error or "certificate verification failed")
+                )
+            # cert_ok None with STARTTLS advertised: handshake failed for a
+            # non-certificate reason → indeterminate for 9.2, nothing to report.
 
         if missing:
             findings.append(FindingData(
@@ -222,13 +258,47 @@ class DnsScanner(BaseScanner):
                 raw_data=json.dumps({"mx_without_starttls": missing}),
             ))
         elif reachable == 0:
+            # Single indeterminate finding covering both 9.1 and 9.2: no MX
+            # reachable on port 25 means neither STARTTLS nor the certificate
+            # could be verified — do not add a second noisy info finding.
             findings.append(FindingData(
                 severity="info",
                 title="STARTTLS: MX not testable",
                 description=(
                     "Could not reach any MX server on port 25 (often blocked by "
-                    "the network), so STARTTLS support could not be verified."
+                    "the network), so STARTTLS support and the MX TLS "
+                    "certificate could not be verified."
                 ),
+            ))
+
+        # 9.2 — MX TLS certificate (only from positive signals).
+        if invalid_certs:
+            reasons = "; ".join(f"{host}: {reason}" for host, reason in invalid_certs)
+            findings.append(FindingData(
+                severity="medium",
+                title="Invalid TLS certificate on MX",
+                description=(
+                    "The following mail server(s) presented an invalid TLS "
+                    f"certificate during the STARTTLS handshake: {reasons}. "
+                    "Sending servers that verify certificates (MTA-STS, DANE) "
+                    "may refuse to deliver email to them."
+                ),
+                remediation=(
+                    "Deploy a CA-signed certificate matching the MX hostname "
+                    "on the mail server(s), e.g. with Let's Encrypt."
+                ),
+                raw_data=json.dumps({"mx_invalid_cert": dict(invalid_certs)}),
+            ))
+        elif valid_certs:
+            findings.append(FindingData(
+                severity="info",
+                title="MX TLS certificate valid",
+                description=(
+                    "The mail server(s) tested over STARTTLS presented a valid "
+                    "TLS certificate (trusted chain, hostname, expiry): "
+                    f"{', '.join(valid_certs)}."
+                ),
+                raw_data=json.dumps({"mx_valid_cert": valid_certs}),
             ))
 
     # --- Phase 1: new checks ---
@@ -509,25 +579,51 @@ class DnsScanner(BaseScanner):
                 ))
 
 
-def _probe_starttls(mx_host: str, timeout: float = 7.0) -> bool | None:
-    """Probe a single MX host for STARTTLS support (blocking, run in an executor).
+def _probe_starttls(mx_host: str, timeout: float = 7.0) -> MxProbeResult:
+    """Probe a single MX host for STARTTLS support and certificate validity
+    (blocking, run in an executor).
 
-    Returns:
-        ``True``  -> the server answered EHLO and advertised STARTTLS.
-        ``False`` -> the server answered EHLO but STARTTLS is absent.
-        ``None``  -> could not determine (connection refused, timeout, port 25
-                     blocked, malformed greeting...). This must NOT be read as a
-                     missing-STARTTLS signal.
+    One SMTP connection feeds both checks: EHLO + capability sniffing for 9.1,
+    then — only if STARTTLS is advertised — the TLS handshake on the same
+    connection for 9.2. The certificate is validated with the system trust
+    store (``ssl.create_default_context()``: chain + expiry) and the hostname
+    is verified against the MX host (``smtplib`` passes the connection host as
+    ``server_hostname``), NOT against the scanned domain.
+
+    A connection failure (port 25 blocked, refused, timeout) yields
+    ``starttls=None`` and must NOT be read as a missing-STARTTLS signal; a
+    handshake that fails for a non-certificate reason yields ``cert_ok=None``.
     """
     import smtplib
+    import ssl
+
+    result = MxProbeResult(starttls=None)
     try:
         with smtplib.SMTP(mx_host, port=25, timeout=timeout) as smtp:
             code, _ = smtp.ehlo()
             if code < 200 or code >= 400:
-                return None  # EHLO refused → cannot conclude
-            return smtp.has_extn("starttls")
+                return result  # EHLO refused → cannot conclude
+            if not smtp.has_extn("starttls"):
+                result = MxProbeResult(starttls=False)
+                return result
+            result = MxProbeResult(starttls=True)
+            try:
+                smtp.starttls(context=ssl.create_default_context())
+                result = MxProbeResult(starttls=True, cert_ok=True)
+            except ssl.SSLCertVerificationError as exc:
+                result = MxProbeResult(
+                    starttls=True,
+                    cert_ok=False,
+                    cert_error=exc.verify_message or str(exc),
+                )
+            except Exception:
+                pass  # handshake failed (timeout, reset...) → cert indeterminate
+            return result
     except Exception:
-        return None  # network / SMTP error → indeterminate, never a hit
+        # Network / SMTP error → indeterminate, never a hit. ``result`` keeps
+        # whatever was established before the failure (e.g. a cert verdict if
+        # only the connection teardown blew up).
+        return result
 
 
 def _try_axfr(ns_host: str, domain: str) -> bool:

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import dns.resolver
 import dns.asyncresolver
 
-from app.scanners.dns import DnsScanner
+from app.scanners.dns import DnsScanner, MxProbeResult
 from app.scanners.base import FindingData
 from tests.conftest import FakeDnsAnswer, FakeTxtRecord, FakeMxRecord
 
@@ -227,7 +227,8 @@ class TestStarttlsMx:
             FakeMxRecord("mail.example.com.")
         ]))
         findings = []
-        with patch("app.scanners.dns._probe_starttls", return_value=True):
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=True)):
             await scanner._check_starttls_mx("example.com", resolver, findings)
         assert findings == []
 
@@ -237,7 +238,8 @@ class TestStarttlsMx:
             FakeMxRecord("mail.example.com.")
         ]))
         findings = []
-        with patch("app.scanners.dns._probe_starttls", return_value=False):
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=False)):
             await scanner._check_starttls_mx("example.com", resolver, findings)
         assert len(findings) == 1
         assert findings[0].severity == "high"
@@ -250,7 +252,8 @@ class TestStarttlsMx:
             FakeMxRecord("mail.example.com.")
         ]))
         findings = []
-        with patch("app.scanners.dns._probe_starttls", return_value=None):
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=None)):
             await scanner._check_starttls_mx("example.com", resolver, findings)
         # Indeterminate: at most an info finding, certainly no high.
         assert all(f.severity != "high" for f in findings)
@@ -273,7 +276,8 @@ class TestStarttlsMx:
         """Domain without MX → not applicable, no finding."""
         resolver.resolve = AsyncMock(side_effect=Exception("no MX"))
         findings = []
-        with patch("app.scanners.dns._probe_starttls", return_value=False) as probe:
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=False)) as probe:
             await scanner._check_starttls_mx("example.com", resolver, findings)
         assert findings == []
         probe.assert_not_called()
@@ -286,7 +290,7 @@ class TestStarttlsMx:
         ]))
 
         def probe_side_effect(host, *args, **kwargs):
-            return True if "mx1" in host else False
+            return MxProbeResult(starttls="mx1" in host)
 
         findings = []
         with patch("app.scanners.dns._probe_starttls", side_effect=probe_side_effect):
@@ -297,7 +301,8 @@ class TestStarttlsMx:
         assert "mx1.example.com" not in findings[0].raw_data
 
     async def test_probe_starttls_present(self):
-        """_probe_starttls returns True when has_extn('starttls') is True."""
+        """STARTTLS advertised and handshake OK → starttls True, cert_ok True."""
+        import ssl
         from app.scanners.dns import _probe_starttls
         from unittest.mock import MagicMock
 
@@ -307,10 +312,18 @@ class TestStarttlsMx:
         smtp.__enter__.return_value = smtp
         smtp.__exit__.return_value = False
         with patch("smtplib.SMTP", return_value=smtp):
-            assert _probe_starttls("mail.example.com") is True
+            result = _probe_starttls("mail.example.com")
+        assert result.starttls is True
+        assert result.cert_ok is True
+        assert result.cert_error is None
+        # The handshake must use a verifying context (chain + hostname).
+        ctx = smtp.starttls.call_args.kwargs["context"]
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.check_hostname is True
 
     async def test_probe_starttls_absent(self):
-        """_probe_starttls returns False when STARTTLS is not advertised."""
+        """STARTTLS not advertised → starttls False, no handshake attempted."""
         from app.scanners.dns import _probe_starttls
         from unittest.mock import MagicMock
 
@@ -320,16 +333,21 @@ class TestStarttlsMx:
         smtp.__enter__.return_value = smtp
         smtp.__exit__.return_value = False
         with patch("smtplib.SMTP", return_value=smtp):
-            assert _probe_starttls("mail.example.com") is False
+            result = _probe_starttls("mail.example.com")
+        assert result.starttls is False
+        assert result.cert_ok is None
+        smtp.starttls.assert_not_called()
 
     async def test_probe_starttls_connection_error(self):
-        """_probe_starttls returns None when the connection fails (indeterminate)."""
+        """_probe_starttls is indeterminate when the connection fails."""
         from app.scanners.dns import _probe_starttls
         with patch("smtplib.SMTP", side_effect=OSError("connection refused")):
-            assert _probe_starttls("mail.example.com") is None
+            result = _probe_starttls("mail.example.com")
+        assert result.starttls is None
+        assert result.cert_ok is None
 
     async def test_probe_starttls_ehlo_refused(self):
-        """A non-2xx EHLO reply → None (cannot conclude)."""
+        """A non-2xx EHLO reply → indeterminate (cannot conclude)."""
         from app.scanners.dns import _probe_starttls
         from unittest.mock import MagicMock
 
@@ -338,7 +356,201 @@ class TestStarttlsMx:
         smtp.__enter__.return_value = smtp
         smtp.__exit__.return_value = False
         with patch("smtplib.SMTP", return_value=smtp):
-            assert _probe_starttls("mail.example.com") is None
+            result = _probe_starttls("mail.example.com")
+        assert result.starttls is None
+
+    async def test_probe_cert_verification_error(self):
+        """A certificate verification failure → cert_ok False with the reason."""
+        import ssl
+        from app.scanners.dns import _probe_starttls
+        from unittest.mock import MagicMock
+
+        exc = ssl.SSLCertVerificationError(
+            1, "certificate verify failed: self-signed certificate")
+        exc.verify_message = "self-signed certificate"
+        smtp = MagicMock()
+        smtp.ehlo.return_value = (250, b"ok")
+        smtp.has_extn.return_value = True
+        smtp.starttls.side_effect = exc
+        smtp.__enter__.return_value = smtp
+        smtp.__exit__.return_value = False
+        with patch("smtplib.SMTP", return_value=smtp):
+            result = _probe_starttls("mail.example.com")
+        assert result.starttls is True
+        assert result.cert_ok is False
+        assert result.cert_error == "self-signed certificate"
+
+    async def test_probe_handshake_non_cert_failure_indeterminate(self):
+        """A handshake failing for a non-certificate reason → cert indeterminate."""
+        from app.scanners.dns import _probe_starttls
+        from unittest.mock import MagicMock
+
+        smtp = MagicMock()
+        smtp.ehlo.return_value = (250, b"ok")
+        smtp.has_extn.return_value = True
+        smtp.starttls.side_effect = OSError("connection reset")
+        smtp.__enter__.return_value = smtp
+        smtp.__exit__.return_value = False
+        with patch("smtplib.SMTP", return_value=smtp):
+            result = _probe_starttls("mail.example.com")
+        assert result.starttls is True
+        assert result.cert_ok is None
+        assert result.cert_error is None
+
+
+# ===================================================================
+# MX TLS certificate checks (9.2)
+# ===================================================================
+
+
+class TestMxTlsCert:
+    async def test_all_mx_valid_cert_info(self, scanner, resolver):
+        """All reachable MX present a valid certificate → single info finding."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mx1.example.com."),
+            FakeMxRecord("mx2.example.com."),
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=True, cert_ok=True)):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "certificate" in findings[0].title.lower()
+        assert "mx1.example.com" in findings[0].description
+        assert "mx2.example.com" in findings[0].description
+
+    async def test_self_signed_cert_medium(self, scanner, resolver):
+        """A self-signed certificate on the MX → medium finding with the reason."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(
+                       starttls=True, cert_ok=False,
+                       cert_error="self-signed certificate")):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "mail.example.com" in findings[0].description
+        assert "self-signed certificate" in findings[0].description
+        assert "CA-signed" in findings[0].remediation
+        assert "mail.example.com" in findings[0].raw_data
+
+    async def test_hostname_mismatch_medium(self, scanner, resolver):
+        """Hostname mismatch → medium finding carrying the verify message."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        reason = "Hostname mismatch, certificate is not valid for 'mail.example.com'"
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(
+                       starttls=True, cert_ok=False, cert_error=reason)):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert reason in findings[0].description
+
+    async def test_expired_cert_medium(self, scanner, resolver):
+        """Expired certificate → medium finding carrying the verify message."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(
+                       starttls=True, cert_ok=False,
+                       cert_error="certificate has expired")):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "certificate has expired" in findings[0].description
+
+    async def test_mixed_valid_and_invalid_lists_only_invalid(self, scanner, resolver):
+        """One valid + one invalid MX → one medium finding for the invalid host only."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mx1.example.com."),
+            FakeMxRecord("mx2.example.com."),
+        ]))
+
+        def probe_side_effect(host, *args, **kwargs):
+            if "mx1" in host:
+                return MxProbeResult(starttls=True, cert_ok=True)
+            return MxProbeResult(starttls=True, cert_ok=False,
+                                 cert_error="self-signed certificate")
+
+        findings = []
+        with patch("app.scanners.dns._probe_starttls", side_effect=probe_side_effect):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "medium"
+        assert "mx2.example.com" in findings[0].description
+        assert "mx1.example.com" not in findings[0].raw_data
+
+    async def test_all_unreachable_indeterminate_single_info(self, scanner, resolver):
+        """No MX reachable on port 25 → only the shared 'not testable' info finding."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=None)):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "info"
+        assert "not testable" in findings[0].title.lower()
+
+    async def test_starttls_absent_no_cert_finding(self, scanner, resolver):
+        """MX without STARTTLS → only the 9.1 high finding, no 9.2 cert finding."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=False)):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert len(findings) == 1
+        assert findings[0].severity == "high"
+        assert "STARTTLS" in findings[0].title
+        assert all("certificate" not in f.title.lower() for f in findings)
+
+    async def test_handshake_failure_indeterminate_no_finding(self, scanner, resolver):
+        """STARTTLS advertised but handshake failed for a non-cert reason → nothing."""
+        resolver.resolve = AsyncMock(return_value=FakeDnsAnswer([
+            FakeMxRecord("mail.example.com.")
+        ]))
+        findings = []
+        with patch("app.scanners.dns._probe_starttls",
+                   return_value=MxProbeResult(starttls=True, cert_ok=None)):
+            await scanner._check_starttls_mx("example.com", resolver, findings)
+        assert findings == []
+
+    async def test_invalid_cert_through_public_scan_path(self, scanner):
+        """End-to-end through DnsScanner.scan(): the 9.2 finding reaches the result."""
+        async def resolve_side_effect(name, rdtype):
+            if rdtype == "MX":
+                return FakeDnsAnswer([FakeMxRecord("mail.example.com.")])
+            raise Exception("no record")
+
+        with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
+            mock_instance = MockResolver.return_value
+            mock_instance.resolve = AsyncMock(side_effect=resolve_side_effect)
+            mock_instance.nameservers = ["8.8.8.8"]
+            with patch("app.scanners.dns._probe_starttls",
+                       return_value=MxProbeResult(
+                           starttls=True, cert_ok=False,
+                           cert_error="self-signed certificate")):
+                result = await scanner.scan("example.com")
+
+        cert_findings = [f for f in result.findings
+                         if f.title == "Invalid TLS certificate on MX"]
+        assert len(cert_findings) == 1
+        assert cert_findings[0].severity == "medium"
+        assert "self-signed certificate" in cert_findings[0].description
+        # No 9.1 finding: STARTTLS was advertised.
+        assert all("STARTTLS" not in f.title for f in result.findings)
 
 
 # ===================================================================
