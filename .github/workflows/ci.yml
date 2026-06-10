@@ -70,8 +70,9 @@ jobs:
 
       - name: Audit (moderate+)
         working-directory: frontend
-        # Low-severity vulnerabilities are ignored (adapter-static false positives)
-        run: npm audit --audit-level=moderate || true
+        # Fails on moderate+ vulnerabilities; low-severity findings
+        # (adapter-static false positives) are excluded by --audit-level.
+        run: npm audit --audit-level=moderate
 
       - name: Build frontend image
         uses: docker/build-push-action@v7
