@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pydantic import BaseModel, model_validator
 import re
+from urllib.parse import urlsplit
 
 from app.homograph import build_homograph_explanation
 
@@ -30,8 +31,9 @@ _DOMAIN_PATTERN = re.compile(
 class DomainInspection:
     """Result of the normalization/validation of a submitted domain.
 
-    - `visible`: visible Unicode form entered (lowercased, scheme and slash
-      removed) — the one the user thinks they typed;
+    - `visible`: visible Unicode form of the bare host (lowercased, with any
+      scheme, userinfo, port, path, query and fragment stripped) — the host the
+      user effectively targets and the one the homograph explanation refers to;
     - `punycode`: ASCII/Punycode form actually scanned;
     - `homograph_explanation`: detailed explanation of the danger if the visible
       form exhibits a homograph signature, otherwise None.
@@ -40,6 +42,35 @@ class DomainInspection:
     visible: str
     punycode: str
     homograph_explanation: str | None
+
+
+def _extract_host(raw: str) -> str | None:
+    """Reduces a pasted URL to its bare registrable host.
+
+    Strips the scheme, userinfo (``user:pass@``), port (``:8080``), path, query
+    (``?…``) and fragment (``#…``) plus surrounding whitespace, so that a full
+    URL pasted from a browser bar (e.g.
+    ``https://user:pass@example.com:8080/login?next=/#top``) is reduced to its
+    host (``example.com``) before validation — matching the UI promise to accept
+    pasted URLs.
+
+    Uses ``urllib.parse`` rather than ad-hoc string ops. A bare domain without a
+    scheme (e.g. ``example.com``) is placed by ``urlsplit`` in ``path`` rather
+    than ``netloc``; prefixing ``//`` forces it to be parsed as an authority so
+    the host is extracted uniformly. ``hostname`` already lowercases the host and
+    drops userinfo/port. Returns ``None`` when no host can be extracted (empty
+    input, malformed authority…), leaving the caller to reject it.
+    """
+    candidate = raw.strip()
+    if not candidate:
+        return None
+    # No authority delimiter and no scheme: treat the whole input as a host.
+    if "://" not in candidate and not candidate.startswith("//"):
+        candidate = "//" + candidate
+    try:
+        return urlsplit(candidate).hostname
+    except ValueError:
+        return None
 
 
 def inspect_domain(raw: str) -> DomainInspection:
@@ -51,9 +82,11 @@ def inspect_domain(raw: str) -> DomainInspection:
     `homograph_explanation` is populated: the caller can then request explicit
     confirmation before scanning.
     """
-    v = raw.strip().lower().removeprefix("https://").removeprefix("http://")
-    v = v.removesuffix("/")  # tolerate a trailing slash but reject a real path
-    visible = v  # submitted visible form, kept to explain the danger
+    host = _extract_host(raw)
+    if not host:
+        raise _reject_domain(raw.strip())
+    v = host  # bare host, scheme/userinfo/port/path/query/fragment already gone
+    visible = v  # visible form of the host, kept to explain the danger
     # Convert internationalized domains (Unicode) to Punycode (xn--).
     # Essential so that the victim can paste a homograph domain as-is
     # ("pаypal.com" with a Cyrillic "а"): without this conversion, the ASCII

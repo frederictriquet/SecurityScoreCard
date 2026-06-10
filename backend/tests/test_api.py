@@ -172,8 +172,25 @@ class TestCreateScan:
         assert resp.status_code == 201
         assert resp.json()["domain"] == "example.com"
 
+    async def test_create_scan_normalizes_full_url(self, client):
+        # A full URL (scheme + userinfo + port + path + query + fragment) pasted
+        # by the user is reduced to its bare host instead of being rejected.
+        resp = await _create_scan(
+            client, "https://user:pass@Example.COM:8080/login?next=/#top"
+        )
+        assert resp.status_code == 201
+        assert resp.json()["domain"] == "example.com"
+
     async def test_create_scan_invalid_domain(self, client):
         resp = await client.post("/api/scans", json={"domain": "not valid"})
+        assert resp.status_code == 422
+
+    async def test_create_scan_url_with_invalid_host_rejected(self, client):
+        # Stripping the URL wrapper must not turn an invalid host (bare IP) into
+        # an accepted domain.
+        resp = await client.post(
+            "/api/scans", json={"domain": "http://192.168.1.1:8080/admin"}
+        )
         assert resp.status_code == 422
 
     async def test_create_scan_empty_domain(self, client):

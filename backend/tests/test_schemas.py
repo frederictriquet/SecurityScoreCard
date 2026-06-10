@@ -54,6 +54,46 @@ class TestScanCreateValidDomains:
         assert scan.domain == "example.com"
 
 
+class TestScanCreateUrlNormalization:
+    """Full pasted URLs are reduced to their bare host before validation.
+
+    The UI invites users to paste a URL; the validator must strip scheme,
+    userinfo, port, path, query and fragment so the bare registrable host is
+    validated, instead of rejecting the whole URL with a 422.
+    """
+
+    @pytest.mark.parametrize("url", [
+        "http://example.com/path/to/page",          # path
+        "https://example.com/login?next=/#top",     # path + query + fragment
+        "example.com:8080",                          # bare host + port
+        "https://example.com:8080",                  # scheme + port
+        "http://user:pass@example.com",              # userinfo
+        "http://user:pass@example.com:8080/a/b?q=1#f",  # everything at once
+        "ftp://example.com",                         # non-http scheme
+        "@example.com",                              # degenerate (empty) userinfo
+        "https://example.com/?",                     # empty query
+        "https://example.com/#",                     # empty fragment
+    ])
+    def test_full_url_reduced_to_host(self, url):
+        scan = ScanCreate(domain=url)
+        assert scan.domain == "example.com"
+        assert scan.visible_domain == "example.com"
+
+    def test_credentials_url_with_everything(self):
+        # The canonical pasted-URL example from the UI promise.
+        scan = ScanCreate(
+            domain="https://user:pass@example.com:8080/login?next=/#top"
+        )
+        assert scan.domain == "example.com"
+        assert scan.visible_domain == "example.com"
+        assert scan.homograph_explanation is None
+
+    def test_subdomain_url_preserves_host(self):
+        # Stripping the URL wrapper must keep the full host, subdomains included.
+        scan = ScanCreate(domain="https://deep.sub.example.com:443/x?y=1")
+        assert scan.domain == "deep.sub.example.com"
+
+
 class TestScanCreateIdn:
     """Punycode conversion of internationalized / homograph domains.
 
@@ -78,6 +118,15 @@ class TestScanCreateIdn:
     def test_unicode_with_prefix_and_slash(self):
         scan = ScanCreate(domain="https://pаypal.com/")
         assert scan.domain == "xn--pypal-4ve.com"
+
+    def test_homograph_pasted_as_full_url(self):
+        # A homograph host buried in a full URL (path/query/fragment) must still
+        # be reduced to its bare visible host, encoded to Punycode, AND flagged.
+        scan = ScanCreate(domain="https://pаypal.com:8080/login?next=/#top")
+        assert scan.domain == "xn--pypal-4ve.com"
+        assert scan.visible_domain == "pаypal.com"
+        assert scan.homograph_explanation is not None
+        assert "homograph" in scan.homograph_explanation.lower()
 
     def test_ascii_domain_unchanged_by_idna(self):
         # The idna conversion must not alter a pure ASCII domain.
@@ -119,11 +168,14 @@ class TestScanCreateHomographRejection:
         assert "Invalid domain" not in msg
         assert "CYRILLIC" in msg  # names the suspicious character(s)
 
-    def test_homograph_with_path_explained(self):
-        # Homograph pasted with a path: rejected (path), but explained.
-        msg = self._error_message("pаypal.com/login")
+    def test_homograph_url_still_invalid_is_explained(self):
+        # Homograph pasted as a full URL whose host is still invalid after
+        # stripping (confusable label with no TLD): rejected, but explained on
+        # the bare visible host rather than the URL wrapper.
+        msg = self._error_message("https://gооgle/login?x=1")
         assert "homograph" in msg.lower()
         assert "IDN spoofing" in msg
+        assert "CYRILLIC" in msg
 
     def test_explanation_mentions_punycode_form(self):
         # The explanation reveals the real Punycode form when it is computable.
@@ -168,13 +220,15 @@ class TestScanCreateInvalidDomains:
         "example-.com",
         ".example.com",
         "example..com",
-        "example.com:8080",
-        "http://example.com/path/to/page",
-        "ftp://example.com",
         "192.168.1.1",
-        "example.c",       # TLD trop court (1 seule lettre)
-        "@example.com",
+        "http://192.168.1.1:8080/admin",  # URL whose host is a bare IP
+        "example.c",       # TLD too short (single letter)
         "exam!ple.com",
+        "https:// example .com/",          # host with spaces, even inside a URL
+        "https://exam ple.com/path",       # space in host survives URL stripping
+        "http://a.com http://b.com",       # multiple hosts pasted together
+        "https://-example.com/",           # leading hyphen survives stripping
+        "https:///path-only",              # URL with empty host
     ])
     def test_invalid_domains_raise_validation_error(self, domain):
         with pytest.raises(ValidationError):
