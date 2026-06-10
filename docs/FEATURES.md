@@ -151,7 +151,7 @@ Goal: the most exhaustive passive scan possible, without paid APIs, using open s
 | # | Check | Severity | Status | Notes |
 |---|-------|----------|--------|-------|
 | 9.1 | STARTTLS on the MX | high | [x] | SMTP connection on port 25, check STARTTLS (port 25 blocked → indeterminate, never a hit) |
-| 9.2 | MX TLS certificate | medium | [ ] | Verify SMTP cert validity |
+| 9.2 | MX TLS certificate | medium | [x] | STARTTLS handshake + chain/hostname/expiry validation (same SMTP connection as 9.1; port 25 blocked → indeterminate) |
 | 9.3 | Open relay test | critical | [ ] | Attempt RCPT TO to an external domain (passive) |
 | 9.4 | SPF — number of DNS lookups (max 10) | medium | [x] | Count include/a/mx/ptr/exists/redirect mechanisms |
 | 9.5 | DKIM — key size (RSA 1024 = weak) | medium | [ ] | Parse the public key from the TXT record |
