@@ -4,7 +4,7 @@ Primitives shared between two use cases:
 
 - the DNS scanner (`scanners.dns._check_idn_homograph`) which CLASSIFIES into
   findings a domain that has already been validated and converted to Punycode;
-- the validator (`schemas.validate_domain`) which, when it REJECTS a suspicious
+- the validator (`schemas.inspect_domain`) which, when it REJECTS a suspicious
   non-ASCII domain, must EXPLAIN why rather than return a terse "Invalid
   domain".
 
