@@ -7,6 +7,37 @@ on:
     branches: ["master"]
 
 jobs:
+  test-backend:
+    name: Test backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-test.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        # Pyright is intentionally not in requirements.txt (not a runtime
+        # dependency of the Docker image); pin it here for reproducible CI.
+        run: |
+          python -m pip install -r requirements-test.txt
+          python -m pip install pyright==1.1.408
+
+      - name: Run tests
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Type check (pyright)
+        working-directory: backend
+        run: pyright app tests
+
   build-backend:
     name: Build backend
     runs-on: ubuntu-latest
@@ -39,7 +70,7 @@ jobs:
 
       - name: Audit (moderate+)
         working-directory: frontend
-        # Les vulnérabilités low sont ignorées (faux positifs adapter-static)
+        # Low-severity vulnerabilities are ignored (adapter-static false positives)
         run: npm audit --audit-level=moderate || true
 
       - name: Build frontend image
