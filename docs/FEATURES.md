@@ -128,7 +128,7 @@ Goal: the most exhaustive passive scan possible, without paid APIs, using open s
 | 7.2 | AbuseIPDB | medium | [x] | If API key available |
 | 7.3 | HIBP (Have I Been Pwned) — domain breaches | high | [x] | API v3 |
 | 7.4 | Google Safe Browsing | high | [ ] | Free API (limited quota, free API key) |
-| 7.5 | PhishTank | medium | [ ] | Free API — domain flagged as phishing? |
+| 7.5 | PhishTank | medium | [x] | PhishTank checkurl API; optional `PHISHTANK_API_KEY` (works keyless, lower rate limit); unavailable/not-listed → indeterminate, never penalized |
 | 7.6 | URLhaus (abuse.ch) | high | [ ] | Free API — malware URLs |
 | 7.7 | VirusTotal | medium | [ ] | Free API (4 req/min) — domain hash |
 | 7.8 | SURBL / URIBL lists | medium | [x] | DNS-based, free |
@@ -243,7 +243,7 @@ Checks achievable using only Python + `dnspython` + `httpx` + `ssl`:
 ### Phase 5 — Additional free APIs
 
 - [ ] 7.4 Google Safe Browsing
-- [ ] 7.5 PhishTank
+- [x] 7.5 PhishTank
 - [ ] 7.6 URLhaus
 
 ---

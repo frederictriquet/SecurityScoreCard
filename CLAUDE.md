@@ -76,6 +76,7 @@ The orchestrator (`orchestrator.py`) calls each scanner and aggregates the resul
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ABUSEIPDB_API_KEY` | AbuseIPDB API key | No (Spamhaus fallback) |
+| `PHISHTANK_API_KEY` | PhishTank API key (raises the rate limit) | No (keyless requests work) |
 
 ## Roadmap
 

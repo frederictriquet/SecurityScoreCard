@@ -18,6 +18,7 @@ from app.scanners.reputation import (
     _check_surbl_uribl,
     SURBL_BITS,
     URIBL_BITS,
+    PHISHTANK_URL,
 )
 from app.scanners.base import FindingData
 from tests.conftest import FakeDnsAnswer
@@ -280,6 +281,7 @@ class TestReputationFullScan:
         with (
             patch("app.scanners.reputation._resolve_ips", return_value=[]),
             patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
         ):
             result = await scanner.scan("nonexistent.example.com")
             assert len(result.findings) == 1
@@ -288,6 +290,7 @@ class TestReputationFullScan:
     async def test_with_abuseipdb_key(self, scanner):
         with (
             patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
             patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
             patch("os.getenv", return_value="fake-key"),
             patch("app.scanners.reputation._check_abuseipdb", new_callable=AsyncMock) as mock_abuse,
@@ -298,6 +301,7 @@ class TestReputationFullScan:
     async def test_without_abuseipdb_key_falls_back_to_spamhaus(self, scanner):
         with (
             patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
             patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
             patch("os.getenv", return_value=""),
             patch("app.scanners.reputation._check_spamhaus_dns") as mock_spam,
@@ -310,6 +314,7 @@ class TestReputationFullScan:
             patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
             patch("os.getenv", return_value=""),
             patch("app.scanners.reputation._check_spamhaus_dns"),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
             patch(
                 "app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock
             ) as mock_surbl,
@@ -320,6 +325,7 @@ class TestReputationFullScan:
     async def test_surbl_uribl_runs_even_without_ips(self, scanner):
         with (
             patch("app.scanners.reputation._resolve_ips", return_value=[]),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
             patch(
                 "app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock
             ) as mock_surbl,
@@ -506,3 +512,207 @@ class TestCheckSurblUribl:
             await _check_surbl_uribl("example.com", findings)
         # nameservers is left untouched (auto Mock attr), not forced to public DNS
         assert resolver.nameservers != ["8.8.8.8", "1.1.1.1"]
+
+
+# ===================================================================
+# PhishTank (check 7.5) — end-to-end through ReputationScanner.scan,
+# HTTP mocked with respx
+# ===================================================================
+
+
+def _phishtank_response(in_database, valid=True, verified=True, detail=None):
+    results = {"in_database": in_database}
+    if in_database:
+        results["valid"] = valid
+        results["verified"] = verified
+        results["url"] = "http://example.com/"
+        if detail:
+            results["phish_detail_page"] = detail
+    return httpx.Response(200, json={"results": results})
+
+
+def _phishtank_scan_patches():
+    """Neutralize everything but PhishTank in a full scan: SURBL/URIBL mocked,
+    one resolved IP, no AbuseIPDB key (Spamhaus fallback, mocked no-op)."""
+    return (
+        patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+        patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
+        patch("app.scanners.reputation._check_spamhaus_dns"),
+        patch.dict("os.environ", {"ABUSEIPDB_API_KEY": ""}, clear=False),
+    )
+
+
+class TestPhishtank:
+    async def test_confirmed_phishing_yields_medium_finding(self, scanner, monkeypatch):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(
+                    True, valid=True, verified=True,
+                    detail="https://phishtank.org/phish_detail.php?phish_id=12345",
+                )
+            )
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 1
+        finding = result.findings[0]
+        assert finding.severity == "medium"
+        assert "PhishTank" in finding.title
+        assert "http://example.com/" in finding.description
+        assert "phish_detail.php?phish_id=12345" in finding.description
+        assert "delisting" in finding.remediation
+
+    async def test_in_database_but_unverified_no_finding(self, scanner, monkeypatch):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(True, valid=True, verified=False)
+            )
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 0
+
+    async def test_in_database_but_invalid_no_finding(self, scanner, monkeypatch):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(True, valid=False, verified=True)
+            )
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 0
+
+    async def test_not_in_database_no_finding(self, scanner, monkeypatch):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(False)
+            )
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 0
+
+    async def test_network_error_is_indeterminate_and_scan_completes(
+        self, scanner, monkeypatch
+    ):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        monkeypatch.setenv("ABUSEIPDB_API_KEY", "")
+
+        def spamhaus_hit(ips, findings):
+            findings.append(FindingData(
+                severity="high",
+                title="IP 1.2.3.4 listed in Spamhaus ZEN",
+                description="listed",
+            ))
+
+        with (
+            respx.mock,
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
+            patch("app.scanners.reputation._check_spamhaus_dns", side_effect=spamhaus_hit),
+        ):
+            respx.post(PHISHTANK_URL).mock(side_effect=httpx.ConnectTimeout("timeout"))
+            result = await scanner.scan("example.com")
+        # No PhishTank finding, but the rest of the scan still completed
+        assert len(result.findings) == 1
+        assert "Spamhaus" in result.findings[0].title
+
+    async def test_rate_limit_429_is_indeterminate(self, scanner, monkeypatch):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            respx.post(PHISHTANK_URL).mock(return_value=httpx.Response(429))
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 0
+
+    async def test_unparseable_body_is_indeterminate(self, scanner, monkeypatch):
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            respx.post(PHISHTANK_URL).mock(
+                return_value=httpx.Response(200, text="<html>maintenance</html>")
+            )
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 0
+
+    async def test_request_without_api_key(self, scanner, monkeypatch):
+        import base64
+        from urllib.parse import parse_qs
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            route = respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(False)
+            )
+            await scanner.scan("example.com")
+        body = parse_qs(route.calls.last.request.content.decode())
+        assert "app_key" not in body
+        assert body["format"] == ["json"]
+        # the checked URL is sent base64-encoded, per the PhishTank API
+        assert base64.b64decode(body["url"][0]).decode() == "http://example.com/"
+
+    async def test_request_with_api_key(self, scanner, monkeypatch):
+        from urllib.parse import parse_qs
+        import respx
+
+        monkeypatch.setenv("PHISHTANK_API_KEY", "tank-key")
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            route = respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(False)
+            )
+            await scanner.scan("example.com")
+        body = parse_qs(route.calls.last.request.content.decode())
+        assert body["app_key"] == ["tank-key"]
+
+    async def test_queries_registrable_domain(self, scanner, monkeypatch):
+        import base64
+        from urllib.parse import parse_qs
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with respx.mock, surbl, ips, spam, env:
+            route = respx.post(PHISHTANK_URL).mock(
+                return_value=_phishtank_response(False)
+            )
+            await scanner.scan("mail.example.co.uk")
+        body = parse_qs(route.calls.last.request.content.decode())
+        assert base64.b64decode(body["url"][0]).decode() == "http://example.co.uk/"
+
+    async def test_clean_phishtank_leaves_other_findings_unchanged(
+        self, scanner, monkeypatch
+    ):
+        """Regression: a clean PhishTank answer must not alter the findings
+        produced by the pre-existing checks (Spamhaus fallback here)."""
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        monkeypatch.setenv("ABUSEIPDB_API_KEY", "")
+        with (
+            respx.mock,
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._resolve_ips", return_value=["1.2.3.4"]),
+            patch("socket.gethostbyname", return_value="127.0.0.2"),
+        ):
+            respx.post(PHISHTANK_URL).mock(return_value=_phishtank_response(False))
+            result = await scanner.scan("example.com")
+        assert len(result.findings) == 1
+        assert result.findings[0].severity == "high"
+        assert "Spamhaus" in result.findings[0].title
