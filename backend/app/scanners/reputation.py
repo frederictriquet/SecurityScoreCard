@@ -1,3 +1,4 @@
+import base64
 import os
 import socket
 import httpx
@@ -9,6 +10,7 @@ from app.scanners.base import BaseScanner, ScanResult, FindingData
 
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 SPAMHAUS_ZEN = "zen.spamhaus.org"
+PHISHTANK_URL = "https://checkurl.phishtank.com/checkurl/"
 
 # Domain-based DNSBLs (queried with the registrable domain, unlike Spamhaus ZEN
 # which is IP-based). A 127.0.0.x answer means listed; the last octet is a
@@ -50,9 +52,11 @@ class ReputationScanner(BaseScanner):
     async def scan(self, domain: str) -> ScanResult:
         findings: list[FindingData] = []
 
-        # SURBL/URIBL are domain-based and independent of the resolved IP, so
-        # run them up front regardless of whether the domain resolves to an IP.
+        # SURBL/URIBL and PhishTank are domain-based and independent of the
+        # resolved IP, so run them up front regardless of whether the domain
+        # resolves to an IP.
         await _check_surbl_uribl(domain, findings)
+        await _check_phishtank(domain, findings)
 
         ips = _resolve_ips(domain)
         if not ips:
@@ -244,3 +248,64 @@ async def _check_surbl_uribl(domain: str, findings: list[FindingData]) -> None:
                 "resolvers. The listing status could not be determined."
             ),
         ))
+
+
+def _phishtank_true(value) -> bool:
+    """Interpret a PhishTank boolean field, which the API may serialize as a
+    JSON bool or as a string ("true"/"yes")."""
+    if value is True:
+        return True
+    return isinstance(value, str) and value.lower() in ("true", "yes", "y")
+
+
+async def _check_phishtank(domain: str, findings: list[FindingData]) -> None:
+    """Check the registrable domain against the PhishTank database.
+
+    The API key is optional (PHISHTANK_API_KEY): PhishTank answers unkeyed
+    requests too, just with a lower rate limit. Only a positive, verified and
+    still-valid phishing match yields a finding — any error (network, timeout,
+    non-200 including rate limiting, unparseable body) or a "not in database"
+    answer is indeterminate and must never degrade the score.
+    """
+    url = f"http://{_registrable_domain(domain)}/"
+    data = {
+        # PhishTank expects the checked URL base64-encoded
+        "url": base64.b64encode(url.encode()).decode(),
+        "format": "json",
+    }
+    app_key = os.getenv("PHISHTANK_API_KEY", "")
+    if app_key:
+        data["app_key"] = app_key
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(PHISHTANK_URL, data=data)
+        if resp.status_code != 200:
+            return  # rate-limited (429/509) or server error -> indeterminate
+        results = resp.json().get("results", {})
+    except Exception:
+        return  # network error / timeout / unparseable body -> indeterminate
+
+    if not (
+        _phishtank_true(results.get("in_database"))
+        and _phishtank_true(results.get("valid"))
+        and _phishtank_true(results.get("verified"))
+    ):
+        return  # not listed, retracted, or unverified entry -> no finding
+
+    description = (
+        f"PhishTank lists {url} as a verified and still-active phishing site."
+    )
+    detail_page = results.get("phish_detail_page")
+    if detail_page:
+        description += f" Details: {detail_page}"
+    findings.append(FindingData(
+        severity="medium",
+        title="Domain listed on PhishTank as phishing",
+        description=description,
+        remediation=(
+            "Check whether the site is compromised or hosting phishing content, "
+            "clean it up, then request delisting on the phish detail page at "
+            "https://phishtank.org."
+        ),
+    ))
