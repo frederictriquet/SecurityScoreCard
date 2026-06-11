@@ -121,6 +121,7 @@ class TestIncompleteCertChain:
         with (
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock, return_value=cert_info),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("chain.example.com")
 
@@ -420,6 +421,8 @@ class TestReputationEdgeCases:
         with (
             patch("app.scanners.reputation._resolve_ips", return_value=["2001:db8::1"]),
             patch.dict("os.environ", {"ABUSEIPDB_API_KEY": ""}, clear=False),
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
         ):
             result = await scanner.scan("ipv6only.example.com")
 
@@ -437,6 +440,8 @@ class TestReputationEdgeCases:
             patch.dict("os.environ", {"ABUSEIPDB_API_KEY": ""}, clear=False),
             patch("app.scanners.reputation.socket.gethostbyname",
                   side_effect=socket.gaierror("NXDOMAIN")),
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
         ):
             result = await scanner.scan("mixed.example.com")
 
@@ -509,6 +514,7 @@ class TestTlsNetworkErrors:
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=OSError("[Errno 8] nodename nor servname provided")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("nonexistent.invalid")
 
@@ -523,6 +529,7 @@ class TestTlsNetworkErrors:
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=ConnectionRefusedError("Connection refused")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("http-only.example.com")
 
@@ -538,6 +545,7 @@ class TestTlsNetworkErrors:
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=socket.timeout("timed out")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("slow.example.com")
 

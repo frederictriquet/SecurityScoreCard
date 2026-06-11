@@ -45,6 +45,35 @@ async def client():
     limiter.enabled = True
 
 
+@pytest.fixture(autouse=True)
+def _no_external_io():
+    """Cut the network paths the per-test patches do not cover.
+
+    The mocked DNS resolver only covers the dns scanner module: the SMTP
+    STARTTLS probe (real DNS lookups + outbound port-25 connections), the
+    SURBL/URIBL and PhishTank reputation lookups and the hstspreload.org API
+    call would otherwise hit the real network. Each is forced to its
+    indeterminate / no-op outcome so the suite passes with the network
+    unplugged.
+    """
+    from app.scanners.dns import MxProbeResult
+
+    with (
+        patch(
+            "app.scanners.dns._probe_starttls",
+            return_value=MxProbeResult(starttls=None),
+        ),
+        patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+        patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
+        patch(
+            "app.scanners.tls._check_hsts_preload",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        yield
+
+
 # ===================================================================
 # Helpers to mock the network layers
 # ===================================================================
