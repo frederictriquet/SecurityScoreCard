@@ -1,10 +1,13 @@
 import asyncio
+import logging
 
 import httpx
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
+
+logger = logging.getLogger(__name__)
 
 USER_AGENT = "SecurityScoreCard-Scanner/1.0 (passive security audit)"
 _CLIENT_DEFAULTS = {
@@ -241,8 +244,10 @@ class HeadersScanner(BaseScanner):
         parser = _HTMLSecurityParser(domain)
         try:
             parser.feed(response.text)
-        except Exception:
-            pass
+        except ValueError as exc:
+            # Hostile/malformed markup (e.g. an unparseable URL hitting
+            # urlparse) must not abort the header analysis.
+            logger.debug("headers: HTML parsing failed for %s: %s", base_url, exc)
 
         for tag, url, host in parser.sri_issues:
             findings.append(FindingData(
@@ -341,8 +346,8 @@ async def _check_cors(base_url: str, findings: list) -> None:
                         description="The server reflects any Origin in Access-Control-Allow-Origin.",
                         remediation="Validate the Origin against a whitelist before reflecting it.",
                     ))
-    except Exception:
-        pass
+    except httpx.HTTPError as exc:
+        logger.debug("headers: CORS check failed for %s: %s", base_url, exc)
 
 
 async def _check_exposed_files(base_url: str, findings: list) -> None:
@@ -354,7 +359,8 @@ async def _check_exposed_files(base_url: str, findings: list) -> None:
         try:
             baseline = await client.get(f"{base_url}/a-path-that-should-not-exist-82719")
             baseline_len = len(baseline.text)
-        except Exception:
+        except httpx.HTTPError as exc:
+            logger.debug("headers: 404 baseline request failed for %s: %s", base_url, exc)
             baseline_len = -1
 
         for path, signature, severity, title, desc, remed in EXPOSED_FILES:
@@ -384,7 +390,8 @@ async def _check_exposed_files(base_url: str, findings: list) -> None:
                     description=desc,
                     remediation=remed,
                 ))
-            except Exception:
+            except httpx.HTTPError as exc:
+                logger.debug("headers: exposed-file probe %s failed for %s: %s", path, base_url, exc)
                 continue
 
         # security.txt
@@ -392,8 +399,8 @@ async def _check_exposed_files(base_url: str, findings: list) -> None:
             resp = await client.get(f"{base_url}/.well-known/security.txt")
             if resp.status_code == 200 and "contact:" in resp.text.lower():
                 security_txt_found = True
-        except Exception:
-            pass
+        except httpx.HTTPError as exc:
+            logger.debug("headers: security.txt probe failed for %s: %s", base_url, exc)
 
     if not security_txt_found:
         findings.append(FindingData(
@@ -410,7 +417,8 @@ async def _check_cookies(base_url: str, findings: list, seen_issues: set[str]) -
         for path in COOKIE_PROBE_PATHS:
             try:
                 resp = await client.get(f"{base_url}{path}")
-            except Exception:
+            except httpx.HTTPError as exc:
+                logger.debug("headers: cookie probe %s failed for %s: %s", path, base_url, exc)
                 continue
 
             for r in [*resp.history, resp]:
@@ -558,8 +566,8 @@ async def _check_http_methods(base_url: str, findings: list) -> None:
                     description=f"The server allows {', '.join(sorted(dangerous))} via the Allow header.",
                     remediation="Disable unnecessary HTTP methods in the server configuration.",
                 ))
-    except Exception:
-        pass
+    except httpx.HTTPError as exc:
+        logger.debug("headers: HTTP methods check failed for %s: %s", base_url, exc)
 
 
 async def _check_robots_sitemap(base_url: str, findings: list) -> None:
@@ -589,8 +597,8 @@ async def _check_robots_sitemap(base_url: str, findings: list) -> None:
                         description=f"Potentially sensitive paths listed in robots.txt: {', '.join(exposed[:5])}",
                         remediation="Check that these paths are not accessible without authentication.",
                     ))
-        except Exception:
-            pass
+        except httpx.HTTPError as exc:
+            logger.debug("headers: robots.txt check failed for %s: %s", base_url, exc)
 
         # sitemap.xml
         try:
@@ -602,8 +610,8 @@ async def _check_robots_sitemap(base_url: str, findings: list) -> None:
                     description="The sitemap.xml file is publicly accessible and discloses the structure of the site.",
                     remediation="Check that the sitemap does not reference internal or protected pages.",
                 ))
-        except Exception:
-            pass
+        except httpx.HTTPError as exc:
+            logger.debug("headers: sitemap.xml check failed for %s: %s", base_url, exc)
 
 
 async def _check_cache_control(base_url: str, findings: list) -> None:
@@ -624,7 +632,8 @@ async def _check_cache_control(base_url: str, findings: list) -> None:
                         remediation="Add Cache-Control: no-store, no-cache on authentication and sensitive pages.",
                     ))
                     return  # A single finding is enough
-            except Exception:
+            except httpx.HTTPError as exc:
+                logger.debug("headers: cache-control probe %s failed for %s: %s", path, base_url, exc)
                 continue
 
 
@@ -650,5 +659,5 @@ async def _check_error_pages(base_url: str, findings: list) -> None:
                         remediation="Configure custom error pages without technical details in production.",
                     ))
                     return
-    except Exception:
-        pass
+    except httpx.HTTPError as exc:
+        logger.debug("headers: error-page check failed for %s: %s", base_url, exc)

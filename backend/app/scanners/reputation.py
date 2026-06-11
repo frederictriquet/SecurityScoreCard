@@ -1,12 +1,16 @@
 import base64
+import logging
 import os
 import socket
 import httpx
 
+import dns.exception
 import dns.resolver
 import dns.asyncresolver
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
+
+logger = logging.getLogger(__name__)
 
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 SPAMHAUS_ZEN = "zen.spamhaus.org"
@@ -80,7 +84,8 @@ def _resolve_ips(domain: str) -> list[str]:
     try:
         results = socket.getaddrinfo(domain, None)
         return [str(r[4][0]) for r in results]
-    except Exception:
+    except OSError as exc:
+        logger.debug("reputation: IP resolution failed for %s: %s", domain, exc)
         return []
 
 
@@ -115,7 +120,8 @@ async def _check_abuseipdb(ips: list[str], api_key: str, findings: list) -> None
                     description=f"{reports} report(s) in the last 90 days (AbuseIPDB).",
                     remediation="Contact the hosting provider or consider changing the IP.",
                 ))
-            except Exception:
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("reputation: AbuseIPDB check failed for %s: %s", ip, exc)
                 continue
 
 
@@ -136,6 +142,8 @@ def _check_spamhaus_dns(ips: list[str], findings: list) -> None:
             ))
         except socket.gaierror:
             pass  # NXDOMAIN = not in the list, which is good
+        except OSError as exc:
+            logger.debug("reputation: Spamhaus lookup failed for %s: %s", ip, exc)
 
 
 def _registrable_domain(domain: str) -> str:
@@ -167,7 +175,8 @@ async def _query_dnsbl(
         return [str(r) for r in answers]
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return []  # not listed
-    except Exception:
+    except dns.exception.DNSException as exc:
+        logger.debug("reputation: DNSBL lookup failed for %s: %s", fqdn, exc)
         return None  # timeout / DNS error -> undetermined
 
 
@@ -283,7 +292,8 @@ async def _check_phishtank(domain: str, findings: list[FindingData]) -> None:
         if resp.status_code != 200:
             return  # rate-limited (429/509) or server error -> indeterminate
         results = resp.json().get("results", {})
-    except Exception:
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("reputation: PhishTank check failed for %s: %s", url, exc)
         return  # network error / timeout / unparseable body -> indeterminate
 
     if not (

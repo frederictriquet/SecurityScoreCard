@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -13,6 +14,8 @@ from app.scanners.reputation import ReputationScanner
 from app.scanners.subdomains import SubdomainsScanner
 from app.scanners.leaks import LeaksScanner
 from app.scanners.ports import PortsScanner
+
+logger = logging.getLogger(__name__)
 
 SCANNERS: list[BaseScanner] = [
     DnsScanner(),
@@ -65,6 +68,10 @@ async def run_single_scanner(scanner: BaseScanner, domain: str, scan_id: str) ->
             module.score = scan_result.score
             module.status = "completed"
         except Exception as exc:
+            # Deliberately broad: a failing scanner (including programming
+            # errors that scanners no longer swallow) must not prevent the
+            # other scanners from completing the scan.
+            logger.exception("Scanner %s failed for %s: %s", scanner.name, domain, exc)
             module.status = "failed"
             module.score = 0
             session.add(Finding(

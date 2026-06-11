@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from datetime import datetime, timezone, timedelta
 
+import dns.exception
 import dns.resolver
 import dns.asyncresolver
 import httpx
@@ -242,7 +243,7 @@ class TestDnsPartialTimeout:
         async def selective_timeout(name, rdtype):
             if rdtype == "TXT" and not name.startswith("_"):
                 call_count["spf"] += 1
-                raise Exception("DNS timeout on SPF")
+                raise dns.exception.Timeout()
             if rdtype == "TXT" and name.startswith("_dmarc."):
                 call_count["other"] += 1
                 return FakeDnsAnswer([FakeTxtRecord('"v=DMARC1; p=reject"')])
@@ -286,7 +287,7 @@ class TestDnsPartialTimeout:
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         mock_resolver.nameservers = ["8.8.8.8"]
         mock_resolver.resolve = AsyncMock(
-            side_effect=Exception("DNS timeout")
+            side_effect=dns.exception.Timeout()
         )
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
@@ -383,7 +384,7 @@ class TestExoticDomains:
 
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         mock_resolver.nameservers = ["8.8.8.8"]
-        mock_resolver.resolve = AsyncMock(side_effect=Exception("NXDOMAIN"))
+        mock_resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
             result = await scanner.scan("xn--nxasmq6b.example.com")
@@ -400,7 +401,7 @@ class TestExoticDomains:
 
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         mock_resolver.nameservers = ["8.8.8.8"]
-        mock_resolver.resolve = AsyncMock(side_effect=Exception("NXDOMAIN"))
+        mock_resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
             result = await scanner.scan(long_domain)
@@ -491,6 +492,9 @@ class TestCookieRedirectEdgeCases:
                 return_value=httpx.Response(200)
             )
             respx.get("http://redir.example.com/").mock(
+                return_value=httpx.Response(200)
+            )
+            respx.options(url__regex=r"https://redir\.example\.com.*").mock(
                 return_value=httpx.Response(200)
             )
 

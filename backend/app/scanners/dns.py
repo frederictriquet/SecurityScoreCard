@@ -1,10 +1,12 @@
 import asyncio
 import json
+import logging
 import random
 import string
 from dataclasses import dataclass
 from typing import cast
 
+import dns.exception
 import dns.resolver
 import dns.asyncresolver
 import dns.rdtypes.ANY.MX
@@ -19,6 +21,8 @@ from app.homograph import (
     alpha_scripts,
     is_legit_multiscript,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -98,7 +102,8 @@ class DnsScanner(BaseScanner):
                         description="The +all policy allows anyone to send emails on behalf of the domain.",
                         remediation="Replace +all with ~all or -all.",
                     ))
-        except Exception:
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: SPF TXT lookup failed for %s: %s", domain, exc)
             findings.append(FindingData(
                 severity="high",
                 title="SPF: unable to resolve",
@@ -132,8 +137,8 @@ class DnsScanner(BaseScanner):
                 description=f"No DMARC record found at _dmarc.{domain}.",
                 remediation='Add: v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
             ))
-        except Exception:
-            pass
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: DMARC lookup failed for %s: %s", domain, exc)
 
     async def _check_dkim(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         selectors = ["default", "google", "mail", "dkim", "k1", "selector1", "selector2"]
@@ -143,7 +148,11 @@ class DnsScanner(BaseScanner):
                 await resolver.resolve(f"{selector}._domainkey.{domain}", "TXT")
                 found = True
                 break
-            except Exception:
+            except dns.exception.DNSException as exc:
+                logger.debug(
+                    "dns: DKIM selector %s lookup failed for %s: %s",
+                    selector, domain, exc,
+                )
                 continue
         if not found:
             findings.append(FindingData(
@@ -154,11 +163,13 @@ class DnsScanner(BaseScanner):
             ))
 
     async def _check_dnssec(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
+        has_dnskey = False
         try:
             answers = await resolver.resolve(domain, "DNSKEY")
-            if not answers:
-                raise Exception("no DNSKEY")
-        except Exception:
+            has_dnskey = bool(answers)
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: DNSKEY lookup failed for %s: %s", domain, exc)
+        if not has_dnskey:
             findings.append(FindingData(
                 severity="low",
                 title="DNSSEC not enabled",
@@ -169,7 +180,8 @@ class DnsScanner(BaseScanner):
     async def _check_mx(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
             await resolver.resolve(domain, "MX")
-        except Exception:
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: MX lookup failed for %s: %s", domain, exc)
             findings.append(FindingData(
                 severity="info",
                 title="No MX record",
@@ -201,7 +213,8 @@ class DnsScanner(BaseScanner):
                 str(cast(dns.rdtypes.ANY.MX.MX, r).exchange).rstrip(".")
                 for r in mx_answers
             ]
-        except Exception:
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: MX lookup for STARTTLS failed for %s: %s", domain, exc)
             return  # No MX → not applicable, no STARTTLS to check
 
         mx_hosts = [h for h in mx_hosts if h]
@@ -217,8 +230,9 @@ class DnsScanner(BaseScanner):
                     loop.run_in_executor(None, _probe_starttls, mx_host),
                     timeout=15,
                 )
-            except Exception:
-                return None  # timeout / executor error → indeterminate
+            except (asyncio.TimeoutError, OSError) as exc:
+                logger.debug("dns: STARTTLS probe failed for %s: %s", mx_host, exc)
+                return None  # timeout / network error → indeterminate
 
         # Probe the (up to 3) hosts concurrently. Outbound port 25 is almost
         # always blocked in cloud/CI deployments, so serial probing would add up
@@ -313,8 +327,8 @@ class DnsScanner(BaseScanner):
                 description="No CAA record. Any certificate authority can issue a certificate.",
                 remediation='Add a CAA record: 0 issue "letsencrypt.org" (adapt to your CA).',
             ))
-        except Exception:
-            pass
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: CAA lookup failed for %s: %s", domain, exc)
 
     async def _check_mta_sts(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
@@ -322,7 +336,7 @@ class DnsScanner(BaseScanner):
             records = [r.to_text() for r in answers if "v=STSv1" in r.to_text()]
             if not records:
                 raise dns.resolver.NoAnswer()
-        except Exception:
+        except dns.exception.DNSException:
             findings.append(FindingData(
                 severity="low",
                 title="MTA-STS not configured",
@@ -339,14 +353,15 @@ class DnsScanner(BaseScanner):
                 str(cast(dns.rdtypes.ANY.MX.MX, r).exchange).rstrip(".")
                 for r in mx_answers
             ]
-        except Exception:
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: MX lookup for DANE failed for %s: %s", domain, exc)
             return  # No MX, no DANE to check
 
         for mx_host in mx_hosts[:3]:
             try:
                 await resolver.resolve(f"_25._tcp.{mx_host}", "TLSA")
                 return  # TLSA found, OK
-            except Exception:
+            except dns.exception.DNSException:
                 continue
 
         findings.append(FindingData(
@@ -381,8 +396,8 @@ class DnsScanner(BaseScanner):
                     description="RFC 7208 limits to 10 DNS lookups. Beyond that, SPF is ignored by some servers.",
                     remediation="Reduce the includes or use SPF flattening.",
                 ))
-        except Exception:
-            pass
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: SPF lookup-count check failed for %s: %s", domain, exc)
 
     # --- Phase 3: additional DNS checks ---
 
@@ -392,7 +407,7 @@ class DnsScanner(BaseScanner):
             records = [r.to_text() for r in answers if "v=TLSRPTv1" in r.to_text()]
             if not records:
                 raise dns.resolver.NoAnswer()
-        except Exception:
+        except dns.exception.DNSException:
             findings.append(FindingData(
                 severity="low",
                 title="TLS-RPT not configured",
@@ -406,7 +421,7 @@ class DnsScanner(BaseScanner):
             records = [r.to_text() for r in answers if "v=BIMI1" in r.to_text()]
             if not records:
                 raise dns.resolver.NoAnswer()
-        except Exception:
+        except dns.exception.DNSException:
             findings.append(FindingData(
                 severity="info",
                 title="BIMI not configured",
@@ -417,7 +432,8 @@ class DnsScanner(BaseScanner):
     async def _check_axfr(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
             ns_answers = await resolver.resolve(domain, "NS")
-        except Exception:
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: NS lookup for AXFR failed for %s: %s", domain, exc)
             return
 
         for ns in ns_answers:
@@ -437,7 +453,8 @@ class DnsScanner(BaseScanner):
                         remediation="Restrict zone transfers (AXFR) to authorized secondary DNS servers.",
                     ))
                     return
-            except Exception:
+            except (asyncio.TimeoutError, OSError) as exc:
+                logger.debug("dns: AXFR probe failed for %s: %s", ns_host, exc)
                 continue
 
     async def _check_wildcard(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
@@ -450,8 +467,8 @@ class DnsScanner(BaseScanner):
                 description="A wildcard record (*.domain) is configured. All subdomains, even nonexistent ones, resolve to an address.",
                 remediation="Remove the wildcard DNS unless necessary. It can mask misconfigured subdomains.",
             ))
-        except Exception:
-            pass
+        except dns.exception.DNSException:
+            pass  # random subdomain does not resolve = no wildcard, expected
 
     async def _check_ns_redundancy(self, domain: str, resolver: dns.asyncresolver.Resolver, findings: list) -> None:
         try:
@@ -460,7 +477,8 @@ class DnsScanner(BaseScanner):
                 str(cast(dns.rdtypes.ANY.NS.NS, r).target).rstrip(".")
                 for r in ns_answers
             ]
-        except Exception:
+        except dns.exception.DNSException as exc:
+            logger.debug("dns: NS lookup failed for %s: %s", domain, exc)
             return
 
         if len(ns_hosts) < 2:
@@ -478,7 +496,8 @@ class DnsScanner(BaseScanner):
             try:
                 a = await resolver.resolve(ns, "A")
                 ns_ips.append(str(a[0]))
-            except Exception:
+            except dns.exception.DNSException as exc:
+                logger.debug("dns: NS A lookup failed for %s: %s", ns, exc)
                 continue
 
         if len(ns_ips) >= 2:
@@ -526,7 +545,8 @@ class DnsScanner(BaseScanner):
                 continue
             try:
                 unicode_label = label[4:].encode("ascii").decode("punycode")
-            except Exception:
+            except UnicodeError as exc:
+                logger.debug("dns: invalid punycode label %s in %s: %s", label, domain, exc)
                 continue
             idn_labels.append((label, unicode_label))
 
@@ -616,22 +636,27 @@ def _probe_starttls(mx_host: str, timeout: float = 7.0) -> MxProbeResult:
                     cert_ok=False,
                     cert_error=exc.verify_message or str(exc),
                 )
-            except Exception:
-                pass  # handshake failed (timeout, reset...) → cert indeterminate
+            except (OSError, smtplib.SMTPException) as exc:
+                # ssl.SSLError is an OSError subclass, so non-certificate
+                # handshake failures (timeout, reset...) land here too.
+                logger.debug("dns: STARTTLS handshake failed for %s: %s", mx_host, exc)
             return result
-    except Exception:
+    except (OSError, smtplib.SMTPException) as exc:
         # Network / SMTP error → indeterminate, never a hit. ``result`` keeps
         # whatever was established before the failure (e.g. a cert verdict if
         # only the connection teardown blew up).
+        logger.debug("dns: SMTP probe failed for %s: %s", mx_host, exc)
         return result
 
 
 def _try_axfr(ns_host: str, domain: str) -> bool:
     """Attempt an AXFR zone transfer (blocking, to be run in an executor)."""
+    import dns.exception
     import dns.query
     import dns.zone
     try:
         zone = dns.zone.from_xfr(dns.query.xfr(ns_host, domain, timeout=5))
         return len(zone.nodes) > 0
-    except Exception:
+    except (dns.exception.DNSException, OSError) as exc:
+        logger.debug("dns: AXFR transfer failed via %s for %s: %s", ns_host, domain, exc)
         return False

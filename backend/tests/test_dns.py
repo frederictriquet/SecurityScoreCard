@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
+import dns.exception
 import dns.resolver
 import dns.asyncresolver
 
@@ -67,7 +68,7 @@ class TestSpf:
         assert "+all" in findings[0].title
 
     async def test_spf_resolve_exception(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
+        resolver.resolve = AsyncMock(side_effect=dns.exception.DNSException("timeout"))
         findings = []
         await scanner._check_spf("example.com", resolver, findings)
         assert len(findings) == 1
@@ -125,7 +126,7 @@ class TestDmarc:
         assert findings[0].severity == "high"
 
     async def test_dmarc_other_exception_silent(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("network error"))
+        resolver.resolve = AsyncMock(side_effect=dns.exception.DNSException("network error"))
         findings = []
         await scanner._check_dmarc("example.com", resolver, findings)
         assert len(findings) == 0
@@ -146,7 +147,7 @@ class TestDkim:
         assert len(findings) == 0
 
     async def test_dkim_not_found_any_selector(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("NXDOMAIN"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
         findings = []
         await scanner._check_dkim("example.com", resolver, findings)
         assert len(findings) == 1
@@ -162,7 +163,7 @@ class TestDkim:
             call_count += 1
             if "selector1._domainkey" in name:
                 return FakeDnsAnswer([FakeTxtRecord('"v=DKIM1; p=..."')])
-            raise Exception("NXDOMAIN")
+            raise dns.resolver.NXDOMAIN()
 
         resolver.resolve = resolve_side_effect
         findings = []
@@ -185,7 +186,7 @@ class TestDnssec:
         assert len(findings) == 0
 
     async def test_dnssec_not_enabled(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("no DNSKEY"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NoAnswer())
         findings = []
         await scanner._check_dnssec("example.com", resolver, findings)
         assert len(findings) == 1
@@ -208,7 +209,7 @@ class TestMx:
         assert len(findings) == 0
 
     async def test_mx_absent(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("no MX"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NoAnswer())
         findings = []
         await scanner._check_mx("example.com", resolver, findings)
         assert len(findings) == 1
@@ -266,7 +267,7 @@ class TestStarttlsMx:
             FakeMxRecord("mail.example.com.")
         ]))
         findings = []
-        with patch("app.scanners.dns._probe_starttls", side_effect=Exception("timeout")):
+        with patch("app.scanners.dns._probe_starttls", side_effect=TimeoutError("timeout")):
             await scanner._check_starttls_mx("example.com", resolver, findings)
         assert all(f.severity != "high" for f in findings)
         assert len(findings) == 1
@@ -274,7 +275,7 @@ class TestStarttlsMx:
 
     async def test_no_mx_not_applicable(self, scanner, resolver):
         """Domain without MX → not applicable, no finding."""
-        resolver.resolve = AsyncMock(side_effect=Exception("no MX"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NoAnswer())
         findings = []
         with patch("app.scanners.dns._probe_starttls",
                    return_value=MxProbeResult(starttls=False)) as probe:
@@ -532,7 +533,7 @@ class TestMxTlsCert:
         async def resolve_side_effect(name, rdtype):
             if rdtype == "MX":
                 return FakeDnsAnswer([FakeMxRecord("mail.example.com.")])
-            raise Exception("no record")
+            raise dns.resolver.NoAnswer()
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
             mock_instance = MockResolver.return_value
@@ -581,7 +582,7 @@ class TestCaa:
         assert findings[0].severity == "medium"
 
     async def test_caa_other_exception_silent(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("network"))
+        resolver.resolve = AsyncMock(side_effect=dns.exception.DNSException("network"))
         findings = []
         await scanner._check_caa("example.com", resolver, findings)
         assert len(findings) == 0
@@ -612,7 +613,7 @@ class TestMtaSts:
         assert "MTA-STS" in findings[0].title
 
     async def test_mta_sts_exception(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("NXDOMAIN"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
         findings = []
         await scanner._check_mta_sts("example.com", resolver, findings)
         assert len(findings) == 1
@@ -648,7 +649,7 @@ class TestDane:
         async def resolve_side_effect(name, rdtype):
             if rdtype == "MX":
                 return FakeDnsAnswer([FakeMxRecord("mail.example.com.")])
-            raise Exception("no TLSA")
+            raise dns.resolver.NXDOMAIN()
 
         resolver.resolve = resolve_side_effect
         findings = []
@@ -659,7 +660,7 @@ class TestDane:
 
     async def test_dane_no_mx_skips(self, scanner, resolver):
         """No MX → no DANE check."""
-        resolver.resolve = AsyncMock(side_effect=Exception("no MX"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NoAnswer())
         findings = []
         await scanner._check_dane("example.com", resolver, findings)
         assert len(findings) == 0
@@ -678,7 +679,7 @@ class TestDane:
                 ])
             if "mx2" in name and rdtype == "TLSA":
                 return FakeDnsAnswer([FakeTxtRecord("TLSA")])
-            raise Exception("no TLSA")
+            raise dns.resolver.NXDOMAIN()
 
         resolver.resolve = resolve_side_effect
         findings = []
@@ -755,7 +756,7 @@ class TestSpfLookups:
         assert len(findings) == 1
 
     async def test_spf_lookups_exception_silent(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
+        resolver.resolve = AsyncMock(side_effect=dns.exception.DNSException("timeout"))
         findings = []
         await scanner._check_spf_lookups("example.com", resolver, findings)
         assert len(findings) == 0
@@ -791,7 +792,7 @@ class TestTlsRpt:
         assert "TLS-RPT" in findings[0].title
 
     async def test_tls_rpt_exception(self, scanner, resolver):
-        resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
+        resolver.resolve = AsyncMock(side_effect=dns.exception.DNSException("timeout"))
         findings = []
         await scanner._check_tls_rpt("example.com", resolver, findings)
         assert len(findings) == 1
@@ -852,7 +853,7 @@ class FakeARecord:
 class TestAxfr:
     async def test_axfr_no_ns_records(self, scanner, resolver):
         """No NS → no AXFR check."""
-        resolver.resolve = AsyncMock(side_effect=Exception("no NS"))
+        resolver.resolve = AsyncMock(side_effect=dns.resolver.NoAnswer())
         findings = []
         await scanner._check_axfr("example.com", resolver, findings)
         assert len(findings) == 0
@@ -896,7 +897,7 @@ class TestAxfr:
 
         resolver.resolve = resolve_side_effect
         findings = []
-        with patch("app.scanners.dns._try_axfr", side_effect=Exception("connection refused")):
+        with patch("app.scanners.dns._try_axfr", side_effect=ConnectionRefusedError("connection refused")):
             await scanner._check_axfr("example.com", resolver, findings)
 
         assert len(findings) == 0
@@ -904,7 +905,7 @@ class TestAxfr:
     def test_try_axfr_returns_false_on_error(self):
         """_try_axfr returns False if the transfer fails."""
         from app.scanners.dns import _try_axfr
-        with patch("app.scanners.dns.dns.query.xfr", side_effect=Exception("refused")):
+        with patch("app.scanners.dns.dns.query.xfr", side_effect=ConnectionRefusedError("refused")):
             assert _try_axfr("ns.example.com", "example.com") is False
 
 
@@ -944,7 +945,7 @@ class TestNsRedundancy:
         async def resolve_side_effect(name, rdtype):
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com.")]
-            raise Exception("no A")
+            raise dns.resolver.NoAnswer()
 
         resolver.resolve = resolve_side_effect
         findings = []
@@ -990,7 +991,7 @@ class TestNsRedundancy:
 
     async def test_ns_resolve_fails(self, scanner, resolver):
         """Cannot resolve NS → no finding, no crash."""
-        resolver.resolve = AsyncMock(side_effect=Exception("timeout"))
+        resolver.resolve = AsyncMock(side_effect=dns.exception.DNSException("timeout"))
         findings = []
         await scanner._check_ns_redundancy("example.com", resolver, findings)
         assert len(findings) == 0
@@ -1001,7 +1002,7 @@ class TestNsRedundancy:
             if rdtype == "NS":
                 return [FakeNsRecord("ns1.example.com."), FakeNsRecord("ns2.example.com.")]
             if rdtype == "A":
-                raise Exception("no A record")
+                raise dns.resolver.NoAnswer()
             raise Exception()
 
         resolver.resolve = resolve_side_effect
@@ -1022,11 +1023,19 @@ class TestDnsFullScan:
         """Verify that scan() returns a ScanResult even if everything fails."""
         with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
             mock_instance = MockResolver.return_value
-            mock_instance.resolve = AsyncMock(side_effect=Exception("mocked"))
+            mock_instance.resolve = AsyncMock(side_effect=dns.exception.DNSException("mocked"))
             mock_instance.nameservers = ["8.8.8.8"]
             result = await scanner.scan("example.com")
             assert result.score >= 0
             assert isinstance(result.findings, list)
+
+    async def test_programming_error_propagates(self, scanner, resolver):
+        """A non-DNS error (e.g. a refactor bug) must not be silently
+        absorbed by the fail-open handling — the orchestrator is the one
+        isolating scanner failures."""
+        resolver.resolve = AsyncMock(side_effect=TypeError("bug"))
+        with pytest.raises(TypeError):
+            await scanner._check_caa("example.com", resolver, [])
 
 
 # ===================================================================
@@ -1162,7 +1171,7 @@ class TestIdnHomograph:
         domain = ScanCreate(domain="pаypal.com").domain
         with patch("app.scanners.dns.dns.asyncresolver.Resolver") as MockResolver:
             mock_instance = MockResolver.return_value
-            mock_instance.resolve = AsyncMock(side_effect=Exception("mocked"))
+            mock_instance.resolve = AsyncMock(side_effect=dns.exception.DNSException("mocked"))
             mock_instance.nameservers = ["8.8.8.8"]
             result = await scanner.scan(domain)
 
