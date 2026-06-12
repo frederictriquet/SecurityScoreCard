@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import ssl
 import socket
 from datetime import datetime, timezone
@@ -7,6 +8,8 @@ import httpx
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
 from app.scanners.testssl_runner import run_testssl
+
+logger = logging.getLogger(__name__)
 
 WEAK_PROTOCOLS = {
     "SSLv2", "SSLv3", "TLSv1", "TLSv1.1",
@@ -119,11 +122,11 @@ def _parse_cert_der(der_bytes: bytes) -> dict:
 
         try:
             subject_cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-        except (IndexError, Exception):
-            subject_cn = ""
+        except IndexError:
+            subject_cn = ""  # no CN attribute, common on modern certs
         try:
             issuer_cn = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-        except (IndexError, Exception):
+        except IndexError:
             issuer_cn = ""
 
         try:
@@ -325,8 +328,9 @@ async def _check_hsts_preload(domain: str) -> list[FindingData]:
             resp = await client.get(HSTS_PRELOAD_API, params={"domain": domain})
             resp.raise_for_status()
             data = resp.json()
-    except Exception:
+    except (httpx.HTTPError, ValueError) as exc:
         # Network error, timeout or invalid response: do not break the scan
+        logger.warning("tls: HSTS preload check failed for %s: %s", domain, exc)
         return findings
 
     status = data.get("status") if isinstance(data, dict) else None

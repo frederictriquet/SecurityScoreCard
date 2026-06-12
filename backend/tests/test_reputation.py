@@ -5,6 +5,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import socket
 
 import httpx
+import dns.exception
 import dns.resolver
 import dns.asyncresolver
 
@@ -476,7 +477,7 @@ class TestCheckSurblUribl:
         findings = []
         mapping = {
             "example.com.multi.surbl.org": dns.resolver.LifetimeTimeout,
-            "example.com.multi.uribl.com": Exception("boom"),
+            "example.com.multi.uribl.com": dns.exception.DNSException("boom"),
         }
         resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         resolver.resolve = _resolver_returning(mapping)
@@ -626,6 +627,31 @@ class TestPhishtank:
         # No PhishTank finding, but the rest of the scan still completed
         assert len(result.findings) == 1
         assert "Spamhaus" in result.findings[0].title
+
+    async def test_network_error_is_logged_and_scan_completes(
+        self, scanner, monkeypatch, caplog
+    ):
+        """Fail-open must stay silent for the score but not for the logs:
+        the outage is visible via logging and the scan still completes."""
+        import logging
+        import respx
+
+        monkeypatch.delenv("PHISHTANK_API_KEY", raising=False)
+        surbl, ips, spam, env = _phishtank_scan_patches()
+        with caplog.at_level(logging.DEBUG, logger="app.scanners.reputation"):
+            with respx.mock, surbl, ips, spam, env:
+                respx.post(PHISHTANK_URL).mock(
+                    side_effect=httpx.ConnectError("connection refused")
+                )
+                result = await scanner.scan("example.com")
+        # Fail-open: the network error yields no finding and a perfect score
+        assert result.findings == []
+        assert result.score == 100
+        # ...but the failure is visible in the logs (check + target + error)
+        assert any(
+            "PhishTank" in message and "connection refused" in message
+            for message in caplog.messages
+        )
 
     async def test_rate_limit_429_is_indeterminate(self, scanner, monkeypatch):
         import respx

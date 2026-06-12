@@ -391,6 +391,10 @@ class TestCheckExposedFiles:
             respx.get("https://example.com/.well-known/security.txt").mock(
                 return_value=httpx.Response(404)
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         git_findings = [f for f in findings if ".git" in f.title.lower() or "Git" in f.title]
@@ -422,6 +426,10 @@ class TestCheckExposedFiles:
                 return_value=httpx.Response(404)
             )
             respx.get("https://example.com/.well-known/security.txt").mock(
+                return_value=httpx.Response(404)
+            )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
                 return_value=httpx.Response(404)
             )
             await _check_exposed_files("https://example.com", findings)
@@ -458,6 +466,10 @@ class TestCheckExposedFiles:
             respx.get("https://example.com/.well-known/security.txt").mock(
                 return_value=httpx.Response(404)
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         env_findings = [f for f in findings if ".env" in f.title]
@@ -489,6 +501,10 @@ class TestCheckExposedFiles:
             respx.get("https://example.com/.well-known/security.txt").mock(
                 return_value=httpx.Response(404)
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         wc_findings = [f for f in findings if "web.config" in f.title]
@@ -517,6 +533,10 @@ class TestCheckExposedFiles:
                 return_value=httpx.Response(200, text="just some text")
             )
             respx.get("https://example.com/.well-known/security.txt").mock(
+                return_value=httpx.Response(404)
+            )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
                 return_value=httpx.Response(404)
             )
             await _check_exposed_files("https://example.com", findings)
@@ -550,6 +570,10 @@ class TestCheckExposedFiles:
                     text="Contact: security@example.com\nExpires: 2025-12-31T23:59:59.000Z",
                 )
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         sec_findings = [f for f in findings if "security.txt" in f.title]
@@ -576,6 +600,10 @@ class TestCheckExposedFiles:
                 return_value=httpx.Response(404)
             )
             respx.get("https://example.com/.well-known/security.txt").mock(
+                return_value=httpx.Response(404)
+            )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
                 return_value=httpx.Response(404)
             )
             await _check_exposed_files("https://example.com", findings)
@@ -610,6 +638,10 @@ class TestCheckExposedFiles:
                 return_value=httpx.Response(200, text=generic_html)
             )
             respx.get("https://example.com/.well-known/security.txt").mock(
+                return_value=httpx.Response(404)
+            )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
                 return_value=httpx.Response(404)
             )
             await _check_exposed_files("https://example.com", findings)
@@ -685,6 +717,9 @@ class TestHeadersFullScan:
             respx.get(url__regex=r"http://example\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             result = await scanner.scan("example.com")
             titles = [f.title for f in result.findings]
@@ -709,6 +744,9 @@ class TestHeadersFullScan:
                 return_value=httpx.Response(200, headers=headers, text="<html></html>")
             )
             respx.get(url__regex=r"http://example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
+            respx.options(url__regex=r"https://example\.com.*").mock(
                 return_value=httpx.Response(200)
             )
 
@@ -986,6 +1024,10 @@ class TestCheckExposedFilesErrors:
             respx.get("https://example.com/.well-known/security.txt").mock(
                 return_value=httpx.Response(404)
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         # .git/HEAD still detected despite the baseline error
@@ -1022,6 +1064,10 @@ class TestCheckExposedFilesErrors:
             respx.get("https://example.com/.well-known/security.txt").mock(
                 return_value=httpx.Response(404)
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         # .env detected despite the error on .git/HEAD
@@ -1052,6 +1098,10 @@ class TestCheckExposedFilesErrors:
             # security.txt fails
             respx.get("https://example.com/.well-known/security.txt").mock(
                 side_effect=httpx.ConnectError("timeout")
+            )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
             )
             await _check_exposed_files("https://example.com", findings)
 
@@ -1087,6 +1137,10 @@ class TestCheckExposedFilesErrors:
             respx.get("https://example.com/.well-known/security.txt").mock(
                 return_value=httpx.Response(404)
             )
+            # Catch-all for the backup-file probes (.htpasswd, *.sql): not exposed
+            respx.get(url__regex=r"https://example\.com/.*").mock(
+                return_value=httpx.Response(404)
+            )
             await _check_exposed_files("https://example.com", findings)
 
         svn_findings = [f for f in findings if "SVN" in f.title]
@@ -1117,6 +1171,9 @@ class TestFullScanSRIAndMixedContent:
             respx.get(url__regex=r"http://example\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             result = await scanner.scan("example.com")
 
@@ -1142,6 +1199,9 @@ class TestFullScanSRIAndMixedContent:
             respx.get(url__regex=r"http://example\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             result = await scanner.scan("example.com")
 
@@ -1165,9 +1225,12 @@ class TestFullScanSRIAndMixedContent:
             respx.get(url__regex=r"http://example\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             # Patch parser.feed to raise an exception
-            with patch.object(_HTMLSecurityParser, "feed", side_effect=Exception("parse error")):
+            with patch.object(_HTMLSecurityParser, "feed", side_effect=ValueError("parse error")):
                 result = await scanner.scan("example.com")
 
             # The scan continues despite the parsing error
@@ -1288,6 +1351,9 @@ class TestFullScanCookieProbing:
                     respx.get(f"http://example.com{path}").mock(
                         return_value=httpx.Response(200)
                     )
+            respx.options(url__regex=r"https://example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             result = await scanner.scan("example.com")
 

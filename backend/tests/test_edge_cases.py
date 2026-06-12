@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from datetime import datetime, timezone, timedelta
 
+import dns.exception
 import dns.resolver
 import dns.asyncresolver
 import httpx
@@ -121,6 +122,7 @@ class TestIncompleteCertChain:
         with (
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock, return_value=cert_info),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("chain.example.com")
 
@@ -241,7 +243,7 @@ class TestDnsPartialTimeout:
         async def selective_timeout(name, rdtype):
             if rdtype == "TXT" and not name.startswith("_"):
                 call_count["spf"] += 1
-                raise Exception("DNS timeout on SPF")
+                raise dns.exception.Timeout()
             if rdtype == "TXT" and name.startswith("_dmarc."):
                 call_count["other"] += 1
                 return FakeDnsAnswer([FakeTxtRecord('"v=DMARC1; p=reject"')])
@@ -285,7 +287,7 @@ class TestDnsPartialTimeout:
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         mock_resolver.nameservers = ["8.8.8.8"]
         mock_resolver.resolve = AsyncMock(
-            side_effect=Exception("DNS timeout")
+            side_effect=dns.exception.Timeout()
         )
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
@@ -382,7 +384,7 @@ class TestExoticDomains:
 
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         mock_resolver.nameservers = ["8.8.8.8"]
-        mock_resolver.resolve = AsyncMock(side_effect=Exception("NXDOMAIN"))
+        mock_resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
             result = await scanner.scan("xn--nxasmq6b.example.com")
@@ -399,7 +401,7 @@ class TestExoticDomains:
 
         mock_resolver = AsyncMock(spec=dns.asyncresolver.Resolver)
         mock_resolver.nameservers = ["8.8.8.8"]
-        mock_resolver.resolve = AsyncMock(side_effect=Exception("NXDOMAIN"))
+        mock_resolver.resolve = AsyncMock(side_effect=dns.resolver.NXDOMAIN())
 
         with patch("app.scanners.dns.dns.asyncresolver.Resolver", return_value=mock_resolver):
             result = await scanner.scan(long_domain)
@@ -420,6 +422,8 @@ class TestReputationEdgeCases:
         with (
             patch("app.scanners.reputation._resolve_ips", return_value=["2001:db8::1"]),
             patch.dict("os.environ", {"ABUSEIPDB_API_KEY": ""}, clear=False),
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
         ):
             result = await scanner.scan("ipv6only.example.com")
 
@@ -437,6 +441,8 @@ class TestReputationEdgeCases:
             patch.dict("os.environ", {"ABUSEIPDB_API_KEY": ""}, clear=False),
             patch("app.scanners.reputation.socket.gethostbyname",
                   side_effect=socket.gaierror("NXDOMAIN")),
+            patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+            patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
         ):
             result = await scanner.scan("mixed.example.com")
 
@@ -488,6 +494,9 @@ class TestCookieRedirectEdgeCases:
             respx.get("http://redir.example.com/").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://redir\.example\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             result = await scanner.scan("redir.example.com")
 
@@ -509,6 +518,7 @@ class TestTlsNetworkErrors:
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=OSError("[Errno 8] nodename nor servname provided")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("nonexistent.invalid")
 
@@ -523,6 +533,7 @@ class TestTlsNetworkErrors:
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=ConnectionRefusedError("Connection refused")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("http-only.example.com")
 
@@ -538,6 +549,7 @@ class TestTlsNetworkErrors:
             patch("app.scanners.tls._get_cert_info", new_callable=AsyncMock,
                   side_effect=socket.timeout("timed out")),
             patch("app.scanners.testssl_runner.is_available", return_value=False),
+            patch("app.scanners.tls._check_hsts_preload", new_callable=AsyncMock, return_value=[]),
         ):
             result = await scanner.scan("slow.example.com")
 

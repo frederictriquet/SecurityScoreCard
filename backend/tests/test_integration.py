@@ -45,6 +45,35 @@ async def client():
     limiter.enabled = True
 
 
+@pytest.fixture(autouse=True)
+def _no_external_io():
+    """Cut the network paths the per-test patches do not cover.
+
+    The mocked DNS resolver only covers the dns scanner module: the SMTP
+    STARTTLS probe (real DNS lookups + outbound port-25 connections), the
+    SURBL/URIBL and PhishTank reputation lookups and the hstspreload.org API
+    call would otherwise hit the real network. Each is forced to its
+    indeterminate / no-op outcome so the suite passes with the network
+    unplugged.
+    """
+    from app.scanners.dns import MxProbeResult
+
+    with (
+        patch(
+            "app.scanners.dns._probe_starttls",
+            return_value=MxProbeResult(starttls=None),
+        ),
+        patch("app.scanners.reputation._check_surbl_uribl", new_callable=AsyncMock),
+        patch("app.scanners.reputation._check_phishtank", new_callable=AsyncMock),
+        patch(
+            "app.scanners.tls._check_hsts_preload",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ):
+        yield
+
+
 # ===================================================================
 # Helpers to mock the network layers
 # ===================================================================
@@ -190,6 +219,9 @@ class TestFullIntegration:
             respx.get(url__regex=r"http://integration-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://integration-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             # 1. Create the scan via the API
             resp = await client.post("/api/scans", json={"domain": "integration-test.com"})
@@ -300,6 +332,9 @@ class TestFullIntegration:
             respx.get(url__regex=r"http://bad-domain\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://bad-domain\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             resp = await client.post("/api/scans", json={"domain": "bad-domain.com"})
             scan_id = resp.json()["id"]
@@ -359,6 +394,9 @@ class TestFullIntegration:
             respx.get(url__regex=r"http://list-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://list-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             resp = await client.post("/api/scans", json={"domain": "list-test.com"})
             scan_id = resp.json()["id"]
@@ -402,6 +440,9 @@ class TestFullIntegration:
                 return_value=httpx.Response(200, text="<html></html>")
             )
             respx.get(url__regex=r"http://rescan-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
+            respx.options(url__regex=r"https://rescan-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
 
@@ -464,6 +505,9 @@ class TestFullIntegration:
             respx.get(url__regex=r"http://crash-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://crash-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             resp = await client.post("/api/scans", json={"domain": "crash-test.com"})
             scan_id = resp.json()["id"]
@@ -515,6 +559,9 @@ class TestFullIntegration:
                 return_value=httpx.Response(200, text="<html></html>")
             )
             respx.get(url__regex=r"http://delete-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
+            respx.options(url__regex=r"https://delete-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
 
@@ -572,6 +619,9 @@ class TestFullIntegration:
             respx.get(url__regex=r"http://fields-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
+            respx.options(url__regex=r"https://fields-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
 
             resp = await client.post("/api/scans", json={"domain": "fields-test.com"})
             scan_id = resp.json()["id"]
@@ -624,6 +674,9 @@ class TestFullIntegration:
                 return_value=httpx.Response(200, text="<html></html>")
             )
             respx.get(url__regex=r"http://score-test\.com.*").mock(
+                return_value=httpx.Response(200)
+            )
+            respx.options(url__regex=r"https://score-test\.com.*").mock(
                 return_value=httpx.Response(200)
             )
 

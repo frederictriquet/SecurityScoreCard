@@ -271,11 +271,17 @@ class TestRunNmap:
 # ===================================================================
 
 
+class FakePywhoisError(Exception):
+    """Stand-in for whois.parser.PywhoisError on the mocked module (the
+    scanner's except clause needs a real exception class, not a MagicMock)."""
+
+
 def _mock_whois(mock_w):
     """Create a context manager that injects a mock whois module."""
     import sys
     mock_module = MagicMock()
     mock_module.whois = MagicMock(return_value=mock_w)
+    mock_module.parser.PywhoisError = FakePywhoisError
     return patch.dict(sys.modules, {"whois": mock_module})
 
 
@@ -284,6 +290,7 @@ def _mock_whois_error(exc):
     import sys
     mock_module = MagicMock()
     mock_module.whois = MagicMock(side_effect=exc)
+    mock_module.parser.PywhoisError = FakePywhoisError
     return patch.dict(sys.modules, {"whois": mock_module})
 
 
@@ -337,7 +344,14 @@ class TestWhoisSync:
         assert result is None
 
     def test_whois_exception_returns_none(self):
-        with _mock_whois_error(Exception("timeout")):
+        with _mock_whois_error(TimeoutError("timeout")):
+            result = _whois_sync("example.com")
+
+        assert result is None
+
+    def test_whois_no_match_returns_none(self):
+        """A PywhoisError ("no match for domain") is an expected outcome."""
+        with _mock_whois_error(FakePywhoisError("No match for example.com")):
             result = _whois_sync("example.com")
 
         assert result is None
@@ -552,7 +566,7 @@ class TestCheckWhois:
 
     async def test_whois_exception_silenced(self):
         findings = []
-        with patch("app.scanners.ports._whois_sync", side_effect=Exception("timeout")):
+        with patch("app.scanners.ports._whois_sync", side_effect=TimeoutError("timeout")):
             await _check_whois("example.com", findings)
 
         assert len(findings) == 0

@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 import os
 import tempfile
 import xml.etree.ElementTree as ET
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
+
+logger = logging.getLogger(__name__)
 
 NMAP_PATH = os.environ.get("NMAP_PATH", "/usr/bin/nmap")
 TIMEOUT = 120  # max seconds for the scan
@@ -115,9 +118,8 @@ async def _run_nmap(domain: str) -> list[dict] | None:
 
         return _parse_nmap_xml(xml_path)
 
-    except asyncio.TimeoutError:
-        return None
-    except Exception:
+    except (asyncio.TimeoutError, OSError) as exc:
+        logger.warning("ports: nmap scan failed for %s: %s", domain, exc)
         return None
     finally:
         try:
@@ -160,8 +162,8 @@ def _parse_nmap_xml(xml_path: str) -> list[dict]:
 
                 ports.append(port_data)
 
-    except (ET.ParseError, FileNotFoundError):
-        pass
+    except (ET.ParseError, FileNotFoundError) as exc:
+        logger.warning("ports: could not parse nmap XML output: %s", exc)
 
     return ports
 
@@ -203,14 +205,19 @@ async def _check_whois(domain: str, findings: list[FindingData]) -> None:
                 remediation="Check the legitimacy of the domain.",
             ))
 
-    except Exception:
-        pass
+    except (asyncio.TimeoutError, OSError) as exc:
+        logger.debug("ports: WHOIS lookup failed for %s: %s", domain, exc)
 
 
 def _whois_sync(domain: str) -> dict | None:
     """Blocking WHOIS query (to be run in an executor)."""
     try:
         import whois
+    except ImportError:
+        logger.debug("ports: whois library not installed, skipping WHOIS for %s", domain)
+        return None
+
+    try:
         w = whois.whois(domain)
         if not w or not w.domain_name:
             return None
@@ -240,5 +247,7 @@ def _whois_sync(domain: str) -> dict | None:
             "expiration_date": expiration,
             "age_days": age_days,
         }
-    except Exception:
+    except (whois.parser.PywhoisError, OSError, ValueError) as exc:
+        # PywhoisError covers "no match" answers; OSError the network layer.
+        logger.debug("ports: WHOIS query failed for %s: %s", domain, exc)
         return None

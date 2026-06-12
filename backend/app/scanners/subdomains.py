@@ -1,6 +1,10 @@
+import logging
+
 import httpx
 
 from app.scanners.base import BaseScanner, ScanResult, FindingData
+
+logger = logging.getLogger(__name__)
 
 CRT_SH_URL = "https://crt.sh/"
 
@@ -58,16 +62,25 @@ async def _fetch_subdomains(domain: str) -> set[str]:
                 headers={"Accept": "application/json"},
             )
             data = resp.json()
-            subdomains: set[str] = set()
-            for entry in data:
-                name = entry.get("name_value", "")
-                for sub in name.splitlines():
-                    sub = sub.strip().lstrip("*.")
-                    if sub.endswith(f".{domain}") or sub == domain:
-                        subdomains.add(sub)
-            return subdomains
-    except Exception:
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("subdomains: crt.sh lookup failed for %s: %s", domain, exc)
         return set()
+
+    if not isinstance(data, list):
+        logger.warning(
+            "subdomains: unexpected crt.sh payload for %s: %s",
+            domain, type(data).__name__,
+        )
+        return set()
+
+    subdomains: set[str] = set()
+    for entry in data:
+        name = entry.get("name_value", "")
+        for sub in name.splitlines():
+            sub = sub.strip().lstrip("*.")
+            if sub.endswith(f".{domain}") or sub == domain:
+                subdomains.add(sub)
+    return subdomains
 
 
 async def _check_takeover(subdomains: set[str], findings: list) -> None:
@@ -90,5 +103,5 @@ async def _check_takeover(subdomains: set[str], findings: list) -> None:
                         description=f"The subdomain responds with a 404 from a third-party service ({matched}).",
                         remediation=f"Remove the CNAME for {sub} or claim the resource on the service.",
                     ))
-            except Exception:
-                pass
+            except httpx.HTTPError as exc:
+                logger.debug("subdomains: takeover probe failed for %s: %s", sub, exc)
