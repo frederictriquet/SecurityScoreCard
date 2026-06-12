@@ -260,3 +260,4 @@ Beyond raw checks: added value in presentation, tracking, and exploitation of re
 | 13.4 | Public API / batch scan | [ ] | Endpoint to scan multiple domains (CI, domain fleet) |
 | 13.5 | Scheduled scan + alerting | [ ] | Periodic re-scan of a domain + notification if the score drops |
 | 13.6 | Configurable score weighting | [ ] | Scoring profiles (e-commerce, email-focused…) adjusting the weight of categories in the orchestrator |
+| 13.7 | Surface scan logs in the web UI | [ ] | Scanner `logging` records (fail-open/indeterminate paths: "PhishTank unreachable", "port 25 blocked"…, scanner crashes) are currently lost in the container stdout. Capture them per scan/module (e.g. per-scan logging handler persisted to a `scan_logs` table or a `logs` field on `ScanModule`), expose via the API, display in the scan page as a collapsible "diagnostics" panel — so the user can tell an unavailable check from a passing one |
