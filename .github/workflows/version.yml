@@ -18,7 +18,7 @@ jobs:
 
       - name: Bump version based on conventional commits
         id: tag
-        uses: mathieudutour/github-tag-action@v6.2
+        uses: mathieudutour/github-tag-action@v7
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: false        # pas de bump si aucun commit conventionnel reconnu
